@@ -1,5 +1,8 @@
 import { defineConfig } from "tsup";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   entry: ["src/index.ts"],
@@ -8,7 +11,6 @@ export default defineConfig({
   outDir: "dist",
   clean: true,
   sourcemap: true,
-  // Only bundle our app code (shared/server engine); keep node_modules external
   external: ["socket.io"],
   esbuildOptions(options) {
     options.alias = {

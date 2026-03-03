@@ -261,65 +261,69 @@ function placeExpansionPorts(): Port[] {
 }
 
 /**
- * Get 11 port positions for the expansion board perimeter (ring 3).
+ * Get 11 port positions for the expansion board perimeter.
+ * Evenly spaced around the symmetric diamond (row widths 3,4,5,6,5,4,3).
  */
 function getExpansionPortPositions(): [VertexKey, VertexKey][] {
-  // Ring 3 outer hexes — ports on outward-facing edges
+  // NW edge: H.N + NW_neighbor.S  (DIR[5])
+  // NE edge: H.N + NE_neighbor.S  (DIR[0])
+  // SE edge: H.S + SE_neighbor.N  (DIR[2])
+  // SW edge: H.S + SW_neighbor.N  (DIR[3])
   const outerVertexPairs: [VertexKey, VertexKey][] = [
-    // Top
+    // 1. Top — (1,-3,2) NW
     [
-      canonicalVertexKey({ hex: { q: 3, r: -3, s: 0 }, direction: "N" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: 3, r: -3, s: 0 }, CUBE_DIRECTIONS[0]), direction: "S" }),
+      canonicalVertexKey({ hex: { q: 1, r: -3, s: 2 }, direction: "N" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: 1, r: -3, s: 2 }, CUBE_DIRECTIONS[5]), direction: "S" }),
     ],
-    // Top-right
+    // 2. Top-right — (2,-3,1) NE
     [
-      canonicalVertexKey({ hex: { q: 3, r: -1, s: -2 }, direction: "N" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: 3, r: -1, s: -2 }, CUBE_DIRECTIONS[0]), direction: "S" }),
+      canonicalVertexKey({ hex: { q: 2, r: -3, s: 1 }, direction: "N" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: 2, r: -3, s: 1 }, CUBE_DIRECTIONS[0]), direction: "S" }),
     ],
-    // Right-upper
+    // 3. Right-upper — (2,-2,0) NE
     [
-      canonicalVertexKey({ hex: { q: 2, r: 1, s: -3 }, direction: "S" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: 2, r: 1, s: -3 }, CUBE_DIRECTIONS[2]), direction: "N" }),
+      canonicalVertexKey({ hex: { q: 2, r: -2, s: 0 }, direction: "N" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: 2, r: -2, s: 0 }, CUBE_DIRECTIONS[0]), direction: "S" }),
     ],
-    // Right-lower
+    // 4. Right-lower — (2,0,-2) SE
     [
-      canonicalVertexKey({ hex: { q: 1, r: 2, s: -3 }, direction: "S" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: 1, r: 2, s: -3 }, CUBE_DIRECTIONS[2]), direction: "N" }),
+      canonicalVertexKey({ hex: { q: 2, r: 0, s: -2 }, direction: "S" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: 2, r: 0, s: -2 }, CUBE_DIRECTIONS[2]), direction: "N" }),
     ],
-    // Bottom-right
+    // 5. Lower-right — (1,1,-2) SE
+    [
+      canonicalVertexKey({ hex: { q: 1, r: 1, s: -2 }, direction: "S" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: 1, r: 1, s: -2 }, CUBE_DIRECTIONS[2]), direction: "N" }),
+    ],
+    // 6. Bottom-right — (-1,3,-2) SE
     [
       canonicalVertexKey({ hex: { q: -1, r: 3, s: -2 }, direction: "S" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: -1, r: 3, s: -2 }, CUBE_DIRECTIONS[3]), direction: "N" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: -1, r: 3, s: -2 }, CUBE_DIRECTIONS[2]), direction: "N" }),
     ],
-    // Bottom
+    // 7. Bottom — (-2,3,-1) SW
     [
       canonicalVertexKey({ hex: { q: -2, r: 3, s: -1 }, direction: "S" }),
       canonicalVertexKey({ hex: cubeAdd({ q: -2, r: 3, s: -1 }, CUBE_DIRECTIONS[3]), direction: "N" }),
     ],
-    // Bottom-left
+    // 8. Bottom-left — (-3,3,0) SW
     [
       canonicalVertexKey({ hex: { q: -3, r: 3, s: 0 }, direction: "S" }),
       canonicalVertexKey({ hex: cubeAdd({ q: -3, r: 3, s: 0 }, CUBE_DIRECTIONS[3]), direction: "N" }),
     ],
-    // Left-lower
+    // 9. Left-lower — (-3,1,2) SW
     [
-      canonicalVertexKey({ hex: { q: -3, r: 2, s: 1 }, direction: "N" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: -3, r: 2, s: 1 }, CUBE_DIRECTIONS[5]), direction: "S" }),
+      canonicalVertexKey({ hex: { q: -3, r: 1, s: 2 }, direction: "S" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: -3, r: 1, s: 2 }, CUBE_DIRECTIONS[3]), direction: "N" }),
     ],
-    // Left-upper
+    // 10. Left-upper — (-3,0,3) NW
     [
-      canonicalVertexKey({ hex: { q: -3, r: 1, s: 2 }, direction: "N" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: -3, r: 1, s: 2 }, CUBE_DIRECTIONS[5]), direction: "S" }),
+      canonicalVertexKey({ hex: { q: -3, r: 0, s: 3 }, direction: "N" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: -3, r: 0, s: 3 }, CUBE_DIRECTIONS[5]), direction: "S" }),
     ],
-    // Top-left-lower
+    // 11. Upper-left — (-1,-2,3) NW
     [
-      canonicalVertexKey({ hex: { q: -2, r: -1, s: 3 }, direction: "N" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: -2, r: -1, s: 3 }, CUBE_DIRECTIONS[5]), direction: "S" }),
-    ],
-    // Top (gap area — uses ring-2 perimeter)
-    [
-      canonicalVertexKey({ hex: { q: 0, r: -2, s: 2 }, direction: "N" }),
-      canonicalVertexKey({ hex: cubeAdd({ q: 0, r: -2, s: 2 }, CUBE_DIRECTIONS[5]), direction: "S" }),
+      canonicalVertexKey({ hex: { q: -1, r: -2, s: 3 }, direction: "N" }),
+      canonicalVertexKey({ hex: cubeAdd({ q: -1, r: -2, s: 3 }, CUBE_DIRECTIONS[5]), direction: "S" }),
     ],
   ];
 

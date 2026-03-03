@@ -180,26 +180,24 @@ export const EXPANSION_MAX_SETTLEMENTS = 6;
 export const EXPANSION_MAX_CITIES = 5;
 export const EXPANSION_MAX_ROADS = 20;
 
-/** Hex ring coordinates for expansion board (standard 19 + 11 expansion = 30 hexes) */
+/** Hex ring coordinates for expansion board (standard 19 + 11 expansion = 30 hexes)
+ *  Symmetric diamond: row widths 3,4,5,6,5,4,3
+ */
 export const EXPANSION_HEX_RING_COORDS: Array<{ q: number; r: number; s: number }> = [
   // Include all standard hexes
   ...HEX_RING_COORDS,
-  // Ring 3 (partial — 11 hexes forming the 5-6 player extension ring)
-  // Top edge
-  { q: 3, r: -3, s: 0 },
-  { q: 3, r: -2, s: -1 },
-  // Right edge
-  { q: 3, r: -1, s: -2 },
-  { q: 2, r: 1, s: -3 },
-  // Bottom-right
-  { q: 1, r: 2, s: -3 },
-  { q: -1, r: 3, s: -2 },
-  // Bottom-left
-  { q: -2, r: 3, s: -1 },
-  { q: -3, r: 3, s: 0 },
-  // Left edge
-  { q: -3, r: 2, s: 1 },
-  { q: -3, r: 1, s: 2 },
-  // Top-left (1 hex to keep total at 30)
+  // Top row (r=-3): 3 new hexes
+  { q: 0, r: -3, s: 3 },
+  { q: 1, r: -3, s: 2 },
+  { q: 2, r: -3, s: 1 },
+  // Left-side extensions (r=-2 to r=2): 5 new hexes
+  { q: -1, r: -2, s: 3 },
   { q: -2, r: -1, s: 3 },
+  { q: -3, r: 0, s: 3 },
+  { q: -3, r: 1, s: 2 },
+  { q: -3, r: 2, s: 1 },
+  // Bottom row (r=3): 3 new hexes
+  { q: -3, r: 3, s: 0 },
+  { q: -2, r: 3, s: -1 },
+  { q: -1, r: 3, s: -2 },
 ];

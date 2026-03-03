@@ -1,0 +1,330 @@
+"use client";
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import type { Board } from "@/shared/types/game";
+import type { VertexKey, EdgeKey, HexKey } from "@/shared/types/coordinates";
+import type { BuildingStyle } from "@/shared/types/config";
+import { hexToPixel, edgeEndpoints, vertexToPixel } from "@/shared/utils/hexMath";
+import { HEX_RING_COORDS, PLAYER_COLOR_HEX } from "@/shared/constants";
+import HexTile from "./HexTile";
+import Vertex from "./Vertex";
+import Edge from "./Edge";
+import Port from "./Port";
+
+interface Props {
+  board: Board;
+  size?: number;
+  highlightedVertices?: Set<VertexKey>;
+  highlightedEdges?: Set<EdgeKey>;
+  highlightedHexes?: Set<HexKey>;
+  flashSeven?: boolean;
+  playerColors?: Record<number, string>;
+  buildingStyles?: Record<number, BuildingStyle>;
+  onVertexClick?: (vertex: VertexKey) => void;
+  onEdgeClick?: (edge: EdgeKey) => void;
+  onHexClick?: (hex: HexKey) => void;
+}
+
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 2.5;
+const ZOOM_STEP = 0.1;
+const ZOOM_SHOW_TIMEOUT = 1500;
+
+export default function HexBoard({
+  board,
+  size = 50,
+  highlightedVertices,
+  highlightedEdges,
+  highlightedHexes,
+  flashSeven,
+  playerColors,
+  buildingStyles,
+  onVertexClick,
+  onEdgeClick,
+  onHexClick,
+}: Props) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [showZoomControls, setShowZoomControls] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const dragMoved = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const padding = size * 2.8;
+  // Use actual hex coords from board for expansion support
+  const boardHexCoords = Object.values(board.hexes).map((h) => h.coord);
+  const coords = (boardHexCoords.length > 0 ? boardHexCoords : HEX_RING_COORDS).map((c) => hexToPixel(c, size));
+  const minX = Math.min(...coords.map((c) => c.x)) - padding;
+  const maxX = Math.max(...coords.map((c) => c.x)) + padding;
+  const minY = Math.min(...coords.map((c) => c.y)) - padding;
+  const maxY = Math.max(...coords.map((c) => c.y)) + padding;
+  const width = maxX - minX;
+  const height = maxY - minY;
+
+  function flashZoomControls() {
+    setShowZoomControls(true);
+    if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+    zoomTimeoutRef.current = setTimeout(() => setShowZoomControls(false), ZOOM_SHOW_TIMEOUT);
+  }
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    setZoom((z) => {
+      const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z + delta));
+    });
+    flashZoomControls();
+  }, []);
+
+  // Drag handlers
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    // Only drag on primary button (left click)
+    if (e.button !== 0) return;
+    setIsDragging(true);
+    dragMoved.current = false;
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  }, [pan]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      dragMoved.current = true;
+    }
+    setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy });
+  }, [isDragging]);
+
+  const handlePointerUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full h-full overflow-hidden"
+      style={{ cursor: isDragging ? "grabbing" : "grab" }}
+      onWheel={handleWheel}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+    >
+      <div
+        className="w-full h-full origin-center"
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transition: isDragging ? "none" : "transform 0.1s",
+        }}
+      >
+        <svg
+          viewBox={`${minX} ${minY} ${width} ${height}`}
+          className="w-full h-full"
+          style={{ aspectRatio: `${width}/${height}` }}
+        >
+          {/* Hex tiles */}
+          {Object.entries(board.hexes).map(([key, hex]) => (
+            <HexTile
+              key={key}
+              hex={hex}
+              size={size}
+              highlighted={highlightedHexes?.has(key)}
+              flashSeven={flashSeven}
+              onClick={onHexClick ? () => { if (!dragMoved.current) onHexClick(key); } : undefined}
+            />
+          ))}
+
+          {/* Ports */}
+          {board.ports.map((port, i) => (
+            <Port key={i} port={port} size={size} />
+          ))}
+
+          {/* Placed roads — rendered as polyline chains per player for seamless joins */}
+          {(() => {
+            const FALLBACK_COLORS = ["red", "blue", "white", "orange", "green", "purple"] as const;
+            // Group edges by player, build adjacency graph
+            const adj: Record<number, Record<string, string[]>> = {};
+            for (const [key, road] of Object.entries(board.edges)) {
+              if (!road) continue;
+              const pi = road.playerIndex;
+              if (!adj[pi]) adj[pi] = {};
+              const [v1, v2] = edgeEndpoints(key);
+              if (!adj[pi][v1]) adj[pi][v1] = [];
+              if (!adj[pi][v2]) adj[pi][v2] = [];
+              adj[pi][v1].push(v2);
+              adj[pi][v2].push(v1);
+            }
+
+            const elements: React.ReactNode[] = [];
+
+            for (const [piStr, graph] of Object.entries(adj)) {
+              const pi = Number(piStr);
+              const color = playerColors?.[pi] ?? PLAYER_COLOR_HEX[FALLBACK_COLORS[pi] ?? "red"];
+              const visitedEdges = new Set<string>();
+              const eid = (a: string, b: string) => a < b ? `${a}|${b}` : `${b}|${a}`;
+
+              // Start from endpoints (degree 1) and branch points (degree 3+) first
+              const verts = Object.keys(graph);
+              const starts = [
+                ...verts.filter((v) => graph[v].length === 1 || graph[v].length >= 3),
+                ...verts,
+              ];
+
+              for (const start of starts) {
+                for (const neighbor of graph[start]) {
+                  const e = eid(start, neighbor);
+                  if (visitedEdges.has(e)) continue;
+
+                  // Trace a chain
+                  const chain = [start];
+                  let cur = start;
+                  let next = neighbor;
+                  while (true) {
+                    const e2 = eid(cur, next);
+                    if (visitedEdges.has(e2)) break;
+                    visitedEdges.add(e2);
+                    chain.push(next);
+                    // Continue if degree-2 (straight through)
+                    const unvisited = graph[next].filter((n) => !visitedEdges.has(eid(next, n)));
+                    if (unvisited.length === 1) {
+                      cur = next;
+                      next = unvisited[0];
+                    } else {
+                      break;
+                    }
+                  }
+
+                  const pts = chain.map((v) => vertexToPixel(v, size));
+                  const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(" ");
+                  const key = `road-${pi}-${chain[0]}-${chain[chain.length - 1]}`;
+
+                  // Outline
+                  elements.push(
+                    <polyline
+                      key={`${key}-outline`}
+                      points={pointsStr}
+                      fill="none"
+                      stroke="#2c1810"
+                      strokeWidth={size * 0.14}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  );
+                }
+              }
+
+              // Second pass: fills on top
+              visitedEdges.clear();
+              for (const start of starts) {
+                for (const neighbor of graph[start]) {
+                  const e = eid(start, neighbor);
+                  if (visitedEdges.has(e)) continue;
+
+                  const chain = [start];
+                  let cur = start;
+                  let next = neighbor;
+                  while (true) {
+                    const e2 = eid(cur, next);
+                    if (visitedEdges.has(e2)) break;
+                    visitedEdges.add(e2);
+                    chain.push(next);
+                    const unvisited = graph[next].filter((n) => !visitedEdges.has(eid(next, n)));
+                    if (unvisited.length === 1) {
+                      cur = next;
+                      next = unvisited[0];
+                    } else {
+                      break;
+                    }
+                  }
+
+                  const pts = chain.map((v) => vertexToPixel(v, size));
+                  const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(" ");
+                  const key = `road-${pi}-${chain[0]}-${chain[chain.length - 1]}`;
+
+                  elements.push(
+                    <polyline
+                      key={`${key}-fill`}
+                      points={pointsStr}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={size * 0.1}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  );
+                }
+              }
+            }
+
+            return elements;
+          })()}
+
+          {/* Highlighted edges (potential placements) */}
+          {Object.entries(board.edges).map(([key, road]) => {
+            if (road || !highlightedEdges?.has(key)) return null;
+            return (
+              <Edge
+                key={key}
+                edgeKey={key}
+                road={null}
+                size={size}
+                highlighted={true}
+                onClick={onEdgeClick ? () => { if (!dragMoved.current) onEdgeClick(key); } : undefined}
+              />
+            );
+          })}
+
+          {/* Vertices/Buildings */}
+          {Object.entries(board.vertices).map(([key, building]) => (
+            <Vertex
+              key={key}
+              vertexKey={key}
+              building={building}
+              size={size}
+              highlighted={highlightedVertices?.has(key)}
+              playerColors={playerColors}
+              buildingStyles={buildingStyles}
+              onClick={onVertexClick ? () => { if (!dragMoved.current) onVertexClick(key); } : undefined}
+            />
+          ))}
+        </svg>
+      </div>
+
+      {/* Zoom controls — top left, visible only when zooming */}
+      <div
+        className={`absolute top-2 left-2 flex gap-1 transition-opacity duration-300 ${
+          showZoomControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <button
+          onClick={() => { setZoom((z) => Math.max(MIN_ZOOM, z - ZOOM_STEP * 2)); flashZoomControls(); }}
+          className="w-7 h-7 bg-[#f0e6d0] pixel-btn font-pixel text-[10px] text-gray-700 flex items-center justify-center"
+        >
+          -
+        </button>
+        <button
+          onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); flashZoomControls(); }}
+          className="px-2 h-7 bg-[#f0e6d0] pixel-btn font-pixel text-[8px] text-gray-600 flex items-center justify-center"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          onClick={() => { setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP * 2)); flashZoomControls(); }}
+          className="w-7 h-7 bg-[#f0e6d0] pixel-btn font-pixel text-[10px] text-gray-700 flex items-center justify-center"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}

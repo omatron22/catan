@@ -1,6 +1,9 @@
 # dependencies
 node_modules/
 
+# server build
+server/dist/
+
 # next.js
 .next/
 out/
@@ -25,3 +28,4 @@ npm-debug.log*
 
 # temp build artifacts
 var/
+.vercel

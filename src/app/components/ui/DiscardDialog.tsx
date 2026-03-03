@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Resource, PlayerState } from "@/shared/types/game";
+import type { ClientPlayerState } from "@/shared/types/messages";
 import type { GameAction } from "@/shared/types/actions";
 import { ALL_RESOURCES } from "@/shared/constants";
 import { ResourceIcon } from "@/app/components/icons/ResourceIcons";
@@ -11,7 +12,7 @@ function totalResources(resources: Record<Resource, number>): number {
 }
 
 interface Props {
-  player: PlayerState;
+  player: PlayerState | ClientPlayerState;
   playerIndex: number;
   onAction: (action: GameAction) => void;
 }

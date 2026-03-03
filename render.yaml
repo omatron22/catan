@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: catan-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: CORS_ORIGINS
+        value: https://erfindung.vercel.app
+      - key: NODE_ENV
+        value: production

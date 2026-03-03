@@ -1,19 +1,24 @@
 "use client";
 
 import type { PlayerState } from "@/shared/types/game";
+import type { ClientPlayerState } from "@/shared/types/messages";
 import { PLAYER_COLOR_HEX } from "@/shared/constants";
 import { SwordPixel, RoadPixel, CrownPixel } from "@/app/components/icons/PixelIcons";
 
 interface Props {
-  player: PlayerState;
+  player: PlayerState | ClientPlayerState;
   isCurrentTurn: boolean;
   isLocalPlayer: boolean;
 }
 
 export default function PlayerPanel({ player, isCurrentTurn, isLocalPlayer }: Props) {
   const color = PLAYER_COLOR_HEX[player.color];
-  const totalCards = Object.values(player.resources).reduce((s, n) => s + n, 0);
-  const devCards = player.developmentCards.length + player.newDevelopmentCards.length;
+  const totalCards = "resourceCount" in player
+    ? player.resourceCount
+    : Object.values(player.resources).reduce((s, n) => s + n, 0);
+  const devCards = "developmentCardCount" in player
+    ? player.developmentCardCount
+    : player.developmentCards.length + player.newDevelopmentCards.length;
 
   return (
     <div

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PLAYER_COLOR_HEX } from "@/shared/constants";
 import { PLAYER_COLORS } from "@/shared/types/game";
 import type { GameConfig, PlayerConfig, GameMode, BuildingStyle, TurnTimer } from "@/shared/types/config";
 import { BUILDING_STYLES, DEFAULT_BUILDING_STYLE, TURN_TIMER_OPTIONS, VP_OPTIONS } from "@/shared/types/config";
 import { STYLE_DEFS } from "@/shared/buildingStyles";
+import { useSocket } from "@/app/hooks/useSocket";
+import { useMultiplayerStore } from "@/app/stores/multiplayerStore";
 
 const ALL_COLORS = PLAYER_COLORS;
 const BOT_NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve"];
@@ -65,6 +67,12 @@ const CLOUDS = [
 export default function Home() {
   const router = useRouter();
   const [showLobby, setShowLobby] = useState(false);
+  const [showOnlineLobby, setShowOnlineLobby] = useState(false);
+  const [onlineName, setOnlineName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [creating, setCreating] = useState(false);
+  const { socket, connected } = useSocket();
+  const mpStore = useMultiplayerStore();
   const [players, setPlayers] = useState<PlayerConfig[]>([
     defaultPlayer("", "red", false),
     defaultPlayer("Alice", "blue", true),
@@ -182,6 +190,42 @@ export default function Home() {
     router.push("/game/hotseat");
   }
 
+  // Socket event listeners for online lobby
+  useEffect(() => {
+    if (!socket) return;
+
+    const onJoined = ({ roomCode, playerIndex, reconnectToken }: { roomCode: string; playerIndex: number; reconnectToken: string }) => {
+      mpStore.setRoomJoined(roomCode, playerIndex, reconnectToken);
+      setCreating(false);
+      router.push("/game/online");
+    };
+
+    const onError = ({ message }: { message: string }) => {
+      mpStore.setError(message);
+      setCreating(false);
+    };
+
+    socket.on("room:joined", onJoined);
+    socket.on("game:error", onError);
+
+    return () => {
+      socket.off("room:joined", onJoined);
+      socket.off("game:error", onError);
+    };
+  }, [socket, router, mpStore]);
+
+  function createRoom() {
+    if (!socket || !connected || !onlineName.trim()) return;
+    setCreating(true);
+    socket.emit("room:join", { roomCode: "", playerName: onlineName.trim() });
+  }
+
+  function joinRoom() {
+    if (!socket || !connected || !onlineName.trim() || !joinCode.trim()) return;
+    setCreating(true);
+    socket.emit("room:join", { roomCode: joinCode.trim().toUpperCase(), playerName: onlineName.trim() });
+  }
+
   const cloudLayer = (
     <>
       {CLOUDS.map((c, i) => (
@@ -201,7 +245,7 @@ export default function Home() {
     </>
   );
 
-  if (!showLobby) {
+  if (!showLobby && !showOnlineLobby) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
         {cloudLayer}
@@ -220,12 +264,101 @@ export default function Home() {
           >
             PLAY AGAINST AI OPPONENTS
           </p>
-          <button
-            onClick={() => setShowLobby(true)}
-            className="px-12 py-4 bg-amber-400 text-gray-900 font-pixel text-[14px] pixel-btn start-pulse"
-          >
-            START
-          </button>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => setShowLobby(true)}
+              className="px-12 py-4 bg-amber-400 text-gray-900 font-pixel text-[14px] pixel-btn start-pulse"
+            >
+              START
+            </button>
+            <button
+              onClick={() => setShowOnlineLobby(true)}
+              className="px-12 py-3 bg-[#4CAF50] text-white font-pixel text-[11px] pixel-btn"
+            >
+              PLAY ONLINE
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Online lobby — create or join a room
+  if (showOnlineLobby) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
+        {cloudLayer}
+
+        <div className="relative z-10 w-80">
+          <div className="bg-[#f0e6d0] pixel-border p-6">
+            <h2
+              className="font-pixel text-[16px] text-amber-400 mb-4 text-center"
+              style={{ textShadow: "2px 2px 0 #000" }}
+            >
+              PLAY ONLINE
+            </h2>
+
+            <label className="font-pixel text-[8px] text-gray-600 block mb-1">YOUR NAME</label>
+            <input
+              type="text"
+              value={onlineName}
+              onChange={(e) => setOnlineName(e.target.value)}
+              placeholder="Enter your name..."
+              maxLength={20}
+              className="w-full bg-white px-3 py-2 text-[11px] text-gray-800 border-2 border-black focus:outline-none mb-4"
+              autoFocus
+            />
+
+            {!connected && (
+              <p className="font-pixel text-[7px] text-gray-500 mb-3 text-center">
+                Connecting to server...
+              </p>
+            )}
+
+            {mpStore.error && (
+              <p className="font-pixel text-[7px] text-red-600 mb-3 text-center">{mpStore.error}</p>
+            )}
+
+            <button
+              onClick={createRoom}
+              disabled={!connected || !onlineName.trim() || creating}
+              className="w-full py-3 bg-amber-400 text-gray-900 font-pixel text-[11px] pixel-btn disabled:opacity-50 mb-3"
+            >
+              {creating ? "CREATING..." : "CREATE ROOM"}
+            </button>
+
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex-1 h-[2px] bg-gray-400" />
+              <span className="font-pixel text-[7px] text-gray-500">OR JOIN</span>
+              <div className="flex-1 h-[2px] bg-gray-400" />
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === "Enter" && joinRoom()}
+                placeholder="ROOM CODE"
+                maxLength={4}
+                className="flex-1 bg-white px-3 py-2 text-[12px] text-gray-800 border-2 border-black focus:outline-none font-pixel text-center tracking-widest uppercase"
+              />
+              <button
+                onClick={joinRoom}
+                disabled={!connected || !onlineName.trim() || !joinCode.trim() || creating}
+                className="px-4 py-2 bg-[#4CAF50] text-white font-pixel text-[9px] pixel-btn disabled:opacity-50"
+              >
+                JOIN
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setShowOnlineLobby(false); mpStore.setError(null); }}
+              className="w-full mt-4 py-2 font-pixel text-[8px] text-gray-500 hover:text-gray-700"
+            >
+              BACK
+            </button>
+          </div>
         </div>
       </main>
     );

@@ -1,6 +1,7 @@
 "use client";
 
 import type { GameState, PlayerState, Resource, DevelopmentCardType } from "@/shared/types/game";
+import type { ClientGameState, ClientPlayerState } from "@/shared/types/messages";
 import type { GameAction } from "@/shared/types/actions";
 import { BUILDING_COSTS, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES } from "@/shared/constants";
 import {
@@ -13,14 +14,14 @@ import {
 } from "@/app/components/icons/PixelIcons";
 
 interface Props {
-  gameState: GameState;
+  gameState: GameState | ClientGameState;
   localPlayerIndex: number;
   onAction: (action: GameAction) => void;
   activeAction: string | null;
   setActiveAction: (action: string | null) => void;
 }
 
-function canAfford(player: PlayerState, cost: Partial<Record<Resource, number>>): boolean {
+function canAfford(player: PlayerState | ClientPlayerState, cost: Partial<Record<Resource, number>>): boolean {
   for (const [res, amount] of Object.entries(cost)) {
     if ((amount || 0) > player.resources[res as Resource]) return false;
   }
@@ -75,13 +76,18 @@ export default function ActionBar({
       icon: <ScrollPixel size={20} color="white" />,
       affordable:
         canAfford(player, BUILDING_COSTS.developmentCard) &&
-        gameState.developmentCardDeck.length > 0,
+        ("developmentCardDeck" in gameState
+          ? gameState.developmentCardDeck.length > 0
+          : gameState.developmentCardDeckCount > 0),
       title: "Dev Card (1 Ore + 1 Wheat + 1 Wool)",
-      remaining: gameState.developmentCardDeck.length,
+      remaining: "developmentCardDeck" in gameState
+        ? gameState.developmentCardDeck.length
+        : gameState.developmentCardDeckCount,
     },
   ];
 
-  const devCards = player.developmentCards.filter((c) => c !== "victoryPoint");
+  const playerDevCards = player.developmentCards ?? [];
+  const devCards = playerDevCards.filter((c) => c !== "victoryPoint");
   const canPlayDevCard = !player.hasPlayedDevCardThisTurn && devCards.length > 0;
 
   return (

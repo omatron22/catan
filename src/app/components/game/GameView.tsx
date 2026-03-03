@@ -6,7 +6,6 @@ import HexBoard from "@/app/components/board/HexBoard";
 import PlayerPanel from "@/app/components/ui/PlayerPanel";
 import DiceDisplay from "@/app/components/ui/DiceDisplay";
 import ActionBar from "@/app/components/ui/ActionBar";
-import DiscardDialog from "@/app/components/ui/DiscardDialog";
 import TurnTimerDisplay from "@/app/components/ui/TurnTimerDisplay";
 import ResourceSelector from "@/app/components/ui/ResourceSelector";
 import ChatBox from "@/app/components/ui/ChatBox";
@@ -20,7 +19,11 @@ import type { GameState, GameLogEntry, Resource, DevelopmentCardType } from "@/s
 import type { ClientGameState } from "@/shared/types/messages";
 import type { BuildingStyle } from "@/shared/types/config";
 import type { VertexKey, EdgeKey, HexKey } from "@/shared/types/coordinates";
-import { ALL_RESOURCES, RESOURCE_COLORS, PLAYER_COLOR_HEX } from "@/shared/constants";
+import {
+  ALL_RESOURCES, RESOURCE_COLORS, PLAYER_COLOR_HEX, BUILDING_COSTS,
+  MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES,
+  EXPANSION_MAX_ROADS, EXPANSION_MAX_SETTLEMENTS, EXPANSION_MAX_CITIES,
+} from "@/shared/constants";
 
 type AnyGameState = GameState | ClientGameState;
 
@@ -62,6 +65,13 @@ export interface GameViewProps {
   onAddToRequesting?: (resource: Resource) => void;
 }
 
+function canAfford(resources: Record<Resource, number>, cost: Partial<Record<Resource, number>>): boolean {
+  for (const [res, amount] of Object.entries(cost)) {
+    if ((amount || 0) > resources[res as Resource]) return false;
+  }
+  return true;
+}
+
 const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(props, ref) {
   const {
     gameState,
@@ -88,6 +98,14 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   // --- Active action state ---
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
+  // --- Discard selection state (Fix 3: inline discard) ---
+  const [discardSelection, setDiscardSelection] = useState<Record<Resource, number>>({
+    brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0,
+  });
+
+  // --- Bank trade open state (Fix 5) ---
+  const [bankTradeOpen, setBankTradeOpen] = useState(false);
+
   // --- Trade UI ---
   const myPlayer = gameState.players[myPlayerIndex];
   const trade = useTradeUI(
@@ -101,16 +119,39 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     closeTrade: trade.closeTrade,
   }));
 
-  // --- Highlights ---
+  // --- Expansion board limits ---
+  const expansion = gameState.config?.expansionBoard ?? false;
+  const maxRoads = expansion ? EXPANSION_MAX_ROADS : MAX_ROADS;
+  const maxSettlements = expansion ? EXPANSION_MAX_SETTLEMENTS : MAX_SETTLEMENTS;
+  const maxCities = expansion ? EXPANSION_MAX_CITIES : MAX_CITIES;
+
+  // --- Computed values ---
+  const isMyTurn = gameState.currentPlayerIndex === myPlayerIndex;
+  const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+  const needsDiscard = gameState.turnPhase === "discard" &&
+    gameState.discardingPlayers.includes(myPlayerIndex);
+  const needsStealTarget = gameState.turnPhase === "robber-steal" && isMyTurn;
+  const stealTargets = needsStealTarget
+    ? getStealTargets(gameState.board, gameState.players, myPlayerIndex)
+    : [];
+  const canTradeOrBuild = gameState.phase === "main" && isMyTurn && gameState.turnPhase === "trade-or-build";
+
+  // --- Highlights (Fix 2: pass resources for auto-build) ---
   const { highlightedVertices, highlightedEdges, highlightedHexes } = useHighlights(
     activeAction,
     gameState.board,
     gameState.phase,
     myPlayer.settlements,
     myPlayerIndex,
+    myPlayer.resources,
+    myPlayer.roads.length,
+    myPlayer.cities.length,
+    maxRoads,
+    maxSettlements,
+    maxCities,
   );
 
-  // --- Auto-set active action for setup and special phases ---
+  // --- Auto-set active action for setup, special phases, and auto-build ---
   useEffect(() => {
     if (gameState.currentPlayerIndex !== myPlayerIndex) return;
     if (gameState.phase === "setup-forward" || gameState.phase === "setup-reverse") {
@@ -120,29 +161,50 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
       setActiveAction("move-robber");
     } else if (gameState.turnPhase === "road-building-1" || gameState.turnPhase === "road-building-2") {
       setActiveAction("build-road");
+    } else if (gameState.phase === "main" && gameState.turnPhase === "trade-or-build") {
+      // Auto-build: show all valid positions when no specific action is selected
+      setActiveAction("auto-build");
     }
   }, [gameState.phase, gameState.turnPhase, gameState.setupPlacementsMade, gameState.currentPlayerIndex, myPlayerIndex]);
 
   // --- Reset trade mode on turn change ---
   useEffect(() => {
     trade.closeTrade();
+    setBankTradeOpen(false);
   }, [gameState.currentPlayerIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- Click handlers ---
+  // --- Reset discard selection when discard phase ends ---
+  useEffect(() => {
+    if (!needsDiscard) {
+      setDiscardSelection({ brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0 });
+    }
+  }, [needsDiscard]);
+
+  // --- Click handlers (Fix 2: auto-build support) ---
   const handleVertexClick = useCallback((vertex: VertexKey) => {
     if (activeAction === "setup-settlement" || activeAction === "build-settlement") {
       const actionType = gameState.phase === "main" ? "build-settlement" : "place-settlement";
       onAction({ type: actionType, playerIndex: myPlayerIndex, vertex } as GameAction);
     } else if (activeAction === "build-city") {
       onAction({ type: "build-city", playerIndex: myPlayerIndex, vertex });
+    } else if (activeAction === "auto-build") {
+      // Check if this vertex has player's own settlement → upgrade to city
+      const building = gameState.board.vertices[vertex];
+      if (building && building.playerIndex === myPlayerIndex && building.type === "settlement") {
+        onAction({ type: "build-city", playerIndex: myPlayerIndex, vertex });
+      } else if (!building) {
+        onAction({ type: "build-settlement", playerIndex: myPlayerIndex, vertex });
+      }
     }
-  }, [gameState.phase, activeAction, onAction, myPlayerIndex]);
+  }, [gameState.phase, gameState.board.vertices, activeAction, onAction, myPlayerIndex]);
 
   const handleEdgeClick = useCallback((edge: EdgeKey) => {
     if (activeAction === "setup-road" || activeAction === "build-road") {
       const actionType = (gameState.phase === "setup-forward" || gameState.phase === "setup-reverse")
         ? "place-road" : "build-road";
       onAction({ type: actionType, playerIndex: myPlayerIndex, edge } as GameAction);
+    } else if (activeAction === "auto-build") {
+      onAction({ type: "build-road", playerIndex: myPlayerIndex, edge } as GameAction);
     }
   }, [gameState.phase, activeAction, onAction, myPlayerIndex]);
 
@@ -155,24 +217,36 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   const handleSetActiveAction = useCallback((action: string | null) => {
     if (action === "trade") {
       trade.setTradeMode(true);
+      setActiveAction(null);
+      setBankTradeOpen(false);
+    } else if (action === null) {
+      // When explicitly deselecting, go back to auto-build if in trade-or-build
+      if (canTradeOrBuild) {
+        setActiveAction("auto-build");
+      } else {
+        setActiveAction(null);
+      }
     } else {
       setActiveAction(action);
+      trade.closeTrade();
+      setBankTradeOpen(false);
     }
-  }, [trade]);
+  }, [trade, canTradeOrBuild]);
 
   // --- Bank trade handler ---
   function handleBankTrade(giving: Resource, receiving: Resource) {
-    const bankInfo = trade.getBankTradeInfo();
-    if (!bankInfo) return;
-    if (myPlayer.resources[giving] < bankInfo.ratio * bankInfo.receivingCount) return;
+    const info = trade.getBankTradeInfo();
+    if (!info) return;
+    if (myPlayer.resources[giving] < info.ratio * info.receivingCount) return;
     onAction({
       type: "bank-trade",
       playerIndex: myPlayerIndex,
       giving,
-      givingCount: bankInfo.ratio * bankInfo.receivingCount,
+      givingCount: info.ratio * info.receivingCount,
       receiving,
     });
     trade.closeTrade();
+    setBankTradeOpen(false);
   }
 
   // --- Player trade handler ---
@@ -200,15 +274,32 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     }
   }
 
-  // --- Computed values ---
-  const isMyTurn = gameState.currentPlayerIndex === myPlayerIndex;
-  const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-  const needsDiscard = gameState.turnPhase === "discard" &&
-    gameState.discardingPlayers.includes(myPlayerIndex);
-  const needsStealTarget = gameState.turnPhase === "robber-steal" && isMyTurn;
-  const stealTargets = needsStealTarget
-    ? getStealTargets(gameState.board, gameState.players, myPlayerIndex)
-    : [];
+  // --- Discard handlers (Fix 3) ---
+  const totalResources = Object.values(myPlayer.resources).reduce((s, n) => s + n, 0);
+  const discardAmount = Math.floor(totalResources / 2);
+  const currentDiscardCount = Object.values(discardSelection).reduce((s, n) => s + n, 0);
+
+  function handleDiscardClick(res: Resource) {
+    if (!needsDiscard) return;
+    if (discardSelection[res] < myPlayer.resources[res] && currentDiscardCount < discardAmount) {
+      setDiscardSelection({ ...discardSelection, [res]: discardSelection[res] + 1 });
+    } else if (discardSelection[res] > 0) {
+      // Deselect
+      setDiscardSelection({ ...discardSelection, [res]: discardSelection[res] - 1 });
+    }
+  }
+
+  function handleDiscardConfirm() {
+    if (currentDiscardCount !== discardAmount) return;
+    const filtered = Object.fromEntries(
+      Object.entries(discardSelection).filter(([, v]) => v > 0)
+    ) as Partial<Record<Resource, number>>;
+    onAction({
+      type: "discard-resources",
+      playerIndex: myPlayerIndex,
+      resources: filtered,
+    });
+  }
 
   // Phase text
   let phaseText = "";
@@ -234,7 +325,6 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   }
 
   const myResources = Object.entries(myPlayer.resources) as [Resource, number][];
-  const canTradeOrBuild = gameState.phase === "main" && isMyTurn && gameState.turnPhase === "trade-or-build";
   const opponents = gameState.players.filter((p) => p.index !== myPlayerIndex);
 
   // Bank resources: 19 total per type minus all players' holdings
@@ -279,18 +369,25 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             {leaveLabel}
           </button>
 
+          {/* Turn timer (top-right, always visible when active) */}
+          {turnDeadline && (
+            <div className="absolute top-2 right-2 z-30 bg-[#1a1a2e]/90 border-2 border-[#3a3a5e] px-3 py-1.5">
+              <TurnTimerDisplay deadline={turnDeadline} />
+            </div>
+          )}
+
           {/* Floating overlays */}
           <div className="absolute bottom-2 right-2 left-2 flex items-end justify-between gap-2 pointer-events-none" style={{ zIndex: 20 }}>
             {/* Left side: trade panels */}
             <div className="flex flex-col gap-2">
               {showTradeStrip && (
-                <div className="bg-[#1a1a2e]/95 border-2 border-[#3a3a5e] px-3 py-2 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
-                  <div className="flex items-center gap-3">
+                <div className="bg-black/95 border-2 border-[#3a3a5e] px-2 py-1.5 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
+                  <div className="flex items-center gap-2">
                     {/* Offering section */}
                     <div className="flex items-center gap-1">
-                      <span className="text-[7px] text-green-400 mr-1">OFFERING:</span>
+                      <span className="text-[7px] text-green-400">GIVE:</span>
                       {trade.offering.length === 0 ? (
-                        <span className="text-[6px] text-gray-600">click cards below</span>
+                        <span className="text-[6px] text-gray-600">click cards</span>
                       ) : (
                         trade.offering.map((res, i) => (
                           <MiniCard key={`o-${i}`} resource={res} onClick={() => trade.removeFromOffering(i)} glow="green" />
@@ -299,13 +396,13 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                     </div>
 
                     {/* Swap icon */}
-                    <span className="text-[12px] text-amber-400">&#8644;</span>
+                    <span className="text-[10px] text-amber-400">&#8644;</span>
 
                     {/* Requesting section */}
                     <div className="flex items-center gap-1">
-                      <span className="text-[7px] text-red-400 mr-1">REQUESTING:</span>
+                      <span className="text-[7px] text-red-400">GET:</span>
                       {trade.requesting.length === 0 ? (
-                        <span className="text-[6px] text-gray-600">click + buttons</span>
+                        <span className="text-[6px] text-gray-600">click +</span>
                       ) : (
                         trade.requesting.map((res, i) => (
                           <MiniCard key={`r-${i}`} resource={res} onClick={() => trade.removeFromRequesting(i)} glow="red" />
@@ -314,24 +411,35 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                     </div>
 
                     {/* Request resource buttons */}
-                    <div className="flex gap-1">
+                    <div className="flex gap-0.5">
                       {ALL_RESOURCES.map((res) => (
                         <button
                           key={res}
                           onClick={() => handleAddToRequesting(res)}
-                          className={`w-7 h-7 flex items-center justify-center border border-[#3a3a5e] hover:border-white transition-colors${trade.shakenResource === res ? " res-shake" : ""}`}
+                          className={`w-6 h-6 flex items-center justify-center border border-[#3a3a5e] hover:border-white transition-colors${trade.shakenResource === res ? " res-shake" : ""}`}
                           style={{ backgroundColor: RESOURCE_COLORS[res] }}
                           title={`Request ${RESOURCE_LABELS[res]}`}
                         >
-                          <ResourceIcon resource={res} size={14} />
+                          <ResourceIcon resource={res} size={12} />
                         </button>
                       ))}
                     </div>
 
-                    {/* Bank trade button */}
-                    {bankInfo ? (
-                      <div className="flex items-center gap-1">
-                        <span className="text-[6px] text-gray-400">{bankInfo.ratio}:1</span>
+                    {/* Bank trade button (Fix 5: only show when valid) */}
+                    {bankInfo && !bankTradeOpen && (
+                      <button
+                        onClick={() => setBankTradeOpen(true)}
+                        className="px-2 py-1 text-[7px] pixel-btn bg-amber-600 text-white"
+                        title={`Bank trade ${bankInfo.ratio}:1`}
+                      >
+                        BANK {bankInfo.ratio}:1
+                      </button>
+                    )}
+
+                    {/* Bank trade resource picker */}
+                    {bankInfo && bankTradeOpen && (
+                      <div className="flex items-center gap-0.5">
+                        <span className="text-[6px] text-gray-400">GET:</span>
                         {ALL_RESOURCES.filter((r) => r !== bankInfo.giving).map((res) => (
                           <button
                             key={res}
@@ -341,21 +449,15 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                             title={`Bank: get ${bankInfo.receivingCount} ${RESOURCE_LABELS[res]}`}
                           >
                             <ResourceIcon resource={res} size={12} />
-                            {bankInfo.receivingCount > 1 && (
-                              <span className="absolute -top-1 -right-1 bg-amber-400 text-black text-[5px] font-pixel px-0.5 border border-black leading-tight">
-                                x{bankInfo.receivingCount}
-                              </span>
-                            )}
                           </button>
                         ))}
+                        <button
+                          onClick={() => setBankTradeOpen(false)}
+                          className="text-[6px] text-gray-500 hover:text-white px-1"
+                        >
+                          X
+                        </button>
                       </div>
-                    ) : (
-                      <button
-                        disabled
-                        className="px-2 py-1 bg-[#2a2a4e] text-gray-600 text-[6px] border border-[#3a3a5e] cursor-not-allowed"
-                      >
-                        BANK
-                      </button>
                     )}
 
                     {/* Offer to players */}
@@ -373,8 +475,8 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
                     {/* Close */}
                     <button
-                      onClick={trade.closeTrade}
-                      className="px-2 py-1 text-[7px] text-gray-400 pixel-btn bg-[#2a2a4e] hover:bg-[#3a3a5e]"
+                      onClick={() => { trade.closeTrade(); setBankTradeOpen(false); }}
+                      className="px-1.5 py-1 text-[7px] text-gray-400 pixel-btn bg-[#2a2a4e] hover:bg-[#3a3a5e]"
                     >
                       X
                     </button>
@@ -386,7 +488,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
               {showTradeOverlay && tradeOverlay}
             </div>
 
-            {/* Dice + Timer */}
+            {/* Dice */}
             {gameState.phase === "main" && (
               <div className="pointer-events-auto flex items-center gap-2">
                 {gameState.turnPhase === "roll" && isMyTurn ? (
@@ -398,7 +500,6 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                 ) : gameState.lastDiceRoll ? (
                   <DiceDisplay roll={gameState.lastDiceRoll} canRoll={false} onRoll={() => {}} />
                 ) : null}
-                <TurnTimerDisplay deadline={turnDeadline ?? null} />
               </div>
             )}
           </div>
@@ -410,41 +511,72 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           <div className="flex items-end gap-0.5">
             {myResources
               .filter(([, count]) => count > 0)
-              .map(([res, count]) => (
-                <div
-                  key={res}
-                  className={canTradeOrBuild ? "cursor-pointer" : ""}
-                  onClick={canTradeOrBuild ? () => trade.addToOffering(res) : undefined}
-                  title={canTradeOrBuild ? `Click to offer ${RESOURCE_LABELS[res]}` : undefined}
-                >
-                  <ResourceCard resource={res} count={count} />
-                </div>
-              ))}
+              .map(([res, count]) => {
+                const discardCount = discardSelection[res];
+                return (
+                  <div
+                    key={res}
+                    className={`relative ${needsDiscard || canTradeOrBuild ? "cursor-pointer" : ""}`}
+                    onClick={needsDiscard ? () => handleDiscardClick(res) : (canTradeOrBuild ? () => trade.addToOffering(res) : undefined)}
+                    title={needsDiscard ? `Click to discard ${RESOURCE_LABELS[res]}` : (canTradeOrBuild ? `Click to offer ${RESOURCE_LABELS[res]}` : undefined)}
+                  >
+                    <ResourceCard resource={res} count={count} />
+                    {/* Discard overlay (Fix 3) */}
+                    {needsDiscard && discardCount > 0 && (
+                      <div className="absolute inset-0 bg-red-600/40 border-2 border-red-500 flex items-center justify-center">
+                        <span className="font-pixel text-[10px] text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">-{discardCount}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
-            {/* Existing dev cards */}
-            {myDevCards.map((card: DevelopmentCardType, i: number) => (
-              <div
-                key={`dev-${i}`}
-                className="w-10 h-14 flex flex-col items-center justify-center border-2 border-black bg-purple-700 relative"
-                title={formatDevCard(card)}
-              >
-                {card === "knight" ? (
-                  <SwordPixel size={14} color="white" />
-                ) : card === "victoryPoint" ? (
-                  <CrownPixel size={14} color="#fbbf24" />
-                ) : (
-                  <ScrollPixel size={14} color="white" />
-                )}
-                <span className="text-[5px] text-purple-200">{formatDevCardShort(card)}</span>
-              </div>
-            ))}
+            {/* Existing dev cards (clickable to play) */}
+            {myDevCards.map((card: DevelopmentCardType, i: number) => {
+              const isPlayable = canTradeOrBuild && !myPlayer.hasPlayedDevCardThisTurn && card !== "victoryPoint";
+              return (
+                <button
+                  key={`dev-${i}`}
+                  className={`w-10 h-14 flex flex-col items-center justify-center border-2 border-black bg-purple-700 relative ${
+                    isPlayable ? "cursor-pointer hover:bg-purple-600 hover:border-amber-400" : ""
+                  }`}
+                  title={formatDevCard(card) + (isPlayable ? " (click to play)" : card === "victoryPoint" ? "" : myPlayer.hasPlayedDevCardThisTurn ? " (already played one this turn)" : "")}
+                  onClick={() => {
+                    if (!isPlayable) return;
+                    if (card === "knight") {
+                      onAction({ type: "play-knight", playerIndex: myPlayerIndex });
+                    } else if (card === "roadBuilding") {
+                      onAction({ type: "play-road-building", playerIndex: myPlayerIndex });
+                    } else if (card === "monopoly") {
+                      setActiveAction("monopoly");
+                    } else if (card === "yearOfPlenty") {
+                      setActiveAction("year-of-plenty");
+                    }
+                  }}
+                >
+                  {card === "knight" ? (
+                    <SwordPixel size={14} color="white" />
+                  ) : card === "victoryPoint" ? (
+                    <CrownPixel size={14} color="#fbbf24" />
+                  ) : (
+                    <ScrollPixel size={14} color="white" />
+                  )}
+                  <span className="text-[5px] text-purple-200">{formatDevCardShort(card)}</span>
+                  {isPlayable && (
+                    <span className="absolute -top-1 -right-1 bg-green-500 text-black text-[5px] px-0.5 border border-black leading-none py-0.5">
+                      PLAY
+                    </span>
+                  )}
+                </button>
+              );
+            })}
 
             {/* New dev cards (bought this turn) */}
             {myNewDevCards.map((card: DevelopmentCardType, i: number) => (
               <div
                 key={`new-${i}`}
                 className="w-10 h-14 flex flex-col items-center justify-center border-2 border-dashed border-purple-400 bg-purple-900/50 opacity-60 relative"
-                title={`${formatDevCard(card)} (new - can't play yet)`}
+                title={`${formatDevCard(card)} (NEW - can't play until next turn)`}
               >
                 {card === "knight" ? (
                   <SwordPixel size={14} color="#a78bfa" />
@@ -486,18 +618,43 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
           {/* Status center */}
           <div className="flex-1 text-center">
-            <div className={`font-pixel text-[9px] ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
-              {isMyTurn ? "YOUR TURN" : `${currentPlayer.name.toUpperCase()}'S TURN`}
-            </div>
-            <div className="font-pixel text-[7px] text-gray-300 mt-0.5">
-              {phaseText}
-              {botThinking && !isMyTurn && (
-                <span className="animate-pulse ml-1">...</span>
-              )}
-            </div>
-            {error && <div className="font-pixel text-[7px] text-red-400 mt-0.5">{error}</div>}
-            {connected === false && (
-              <div className="font-pixel text-[7px] text-red-400 mt-0.5 animate-pulse">RECONNECTING...</div>
+            {needsDiscard ? (
+              /* Fix 3: Inline discard status */
+              <>
+                <div className="font-pixel text-[9px] text-red-400">
+                  DISCARD {currentDiscardCount}/{discardAmount}
+                </div>
+                <div className="font-pixel text-[6px] text-gray-400 mt-0.5">
+                  Click cards to select
+                </div>
+                <button
+                  onClick={handleDiscardConfirm}
+                  disabled={currentDiscardCount !== discardAmount}
+                  className={`mt-1 px-4 py-1 font-pixel text-[8px] ${
+                    currentDiscardCount === discardAmount
+                      ? "bg-red-600 text-white pixel-btn"
+                      : "bg-gray-600 text-gray-400 cursor-not-allowed border-2 border-black"
+                  }`}
+                >
+                  CONFIRM
+                </button>
+              </>
+            ) : (
+              <>
+                <div className={`font-pixel text-[9px] ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
+                  {isMyTurn ? "YOUR TURN" : `${currentPlayer.name.toUpperCase()}'S TURN`}
+                </div>
+                <div className="font-pixel text-[7px] text-gray-300 mt-0.5">
+                  {phaseText}
+                  {botThinking && !isMyTurn && (
+                    <span className="animate-pulse ml-1">...</span>
+                  )}
+                </div>
+                {error && <div className="font-pixel text-[7px] text-red-400 mt-0.5">{error}</div>}
+                {connected === false && (
+                  <div className="font-pixel text-[7px] text-red-400 mt-0.5 animate-pulse">RECONNECTING...</div>
+                )}
+              </>
             )}
           </div>
 
@@ -507,7 +664,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
               gameState={gameState}
               localPlayerIndex={myPlayerIndex}
               onAction={onAction}
-              activeAction={activeAction}
+              activeAction={activeAction === "auto-build" ? null : activeAction}
               setActiveAction={handleSetActiveAction}
             />
           )}
@@ -561,15 +718,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
         </div>
       </div>
 
-      {/* Dialogs */}
-      {needsDiscard && (
-        <DiscardDialog
-          player={myPlayer}
-          playerIndex={myPlayerIndex}
-          onAction={onAction}
-        />
-      )}
-
+      {/* Dialogs (Fix 3: DiscardDialog removed, handled inline) */}
       {activeAction === "monopoly" && (
         <ResourceSelector
           type="monopoly"

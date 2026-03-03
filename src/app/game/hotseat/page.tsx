@@ -466,7 +466,7 @@ export default function GamePage() {
       onSendChat={handleSendChat}
       onLeave={() => router.push("/")}
       leaveLabel="MENU"
-      leaveClassName="absolute top-2 right-2 z-30 px-3 py-1.5 bg-[#1a1a2e]/90 border-2 border-[#3a3a5e] font-pixel text-[8px] text-gray-300 hover:text-white hover:bg-[#1a1a2e]"
+      leaveClassName="absolute top-2 left-2 z-30 px-3 py-1.5 bg-[#1a1a2e]/90 border-2 border-[#3a3a5e] font-pixel text-[8px] text-gray-300 hover:text-white hover:bg-[#1a1a2e]"
       flashingHexes={flashingHexes}
       flashSeven={flashSeven}
       turnDeadline={turnDeadline}

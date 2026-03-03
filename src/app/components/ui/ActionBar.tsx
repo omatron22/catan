@@ -1,15 +1,14 @@
 "use client";
 
-import type { GameState, PlayerState, Resource, DevelopmentCardType } from "@/shared/types/game";
+import type { GameState, PlayerState, Resource } from "@/shared/types/game";
 import type { ClientGameState, ClientPlayerState } from "@/shared/types/messages";
 import type { GameAction } from "@/shared/types/actions";
-import { BUILDING_COSTS, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES } from "@/shared/constants";
+import { BUILDING_COSTS, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES, EXPANSION_MAX_ROADS, EXPANSION_MAX_SETTLEMENTS, EXPANSION_MAX_CITIES } from "@/shared/constants";
 import {
   RoadPixel,
   HousePixel,
   CityPixel,
   ScrollPixel,
-  SwordPixel,
   EndTurnPixel,
 } from "@/app/components/icons/PixelIcons";
 
@@ -44,10 +43,11 @@ export default function ActionBar({
   setActiveAction,
 }: Props) {
   const player = gameState.players[localPlayerIndex];
+  const expansion = gameState.config?.expansionBoard ?? false;
 
-  const roadsLeft = MAX_ROADS - player.roads.length;
-  const settlementsLeft = MAX_SETTLEMENTS - player.settlements.length;
-  const citiesLeft = MAX_CITIES - player.cities.length;
+  const roadsLeft = (expansion ? EXPANSION_MAX_ROADS : MAX_ROADS) - player.roads.length;
+  const settlementsLeft = (expansion ? EXPANSION_MAX_SETTLEMENTS : MAX_SETTLEMENTS) - player.settlements.length;
+  const citiesLeft = (expansion ? EXPANSION_MAX_CITIES : MAX_CITIES) - player.cities.length;
 
   const actions = [
     {
@@ -86,10 +86,6 @@ export default function ActionBar({
     },
   ];
 
-  const playerDevCards = player.developmentCards ?? [];
-  const devCards = playerDevCards.filter((c) => c !== "victoryPoint");
-  const canPlayDevCard = !player.hasPlayedDevCardThisTurn && devCards.length > 0;
-
   return (
     <div className="flex items-center gap-1.5">
       {/* Build action buttons */}
@@ -124,34 +120,6 @@ export default function ActionBar({
         );
       })}
 
-      {/* Dev card play buttons */}
-      {canPlayDevCard &&
-        Array.from(new Set(devCards)).map((card) => (
-          <button
-            key={card}
-            onClick={() => {
-              if (card === "knight") {
-                onAction({ type: "play-knight", playerIndex: localPlayerIndex });
-              } else if (card === "roadBuilding") {
-                onAction({ type: "play-road-building", playerIndex: localPlayerIndex });
-              } else if (card === "monopoly") {
-                setActiveAction("monopoly");
-              } else if (card === "yearOfPlenty") {
-                setActiveAction("year-of-plenty");
-              }
-            }}
-            title={formatCardName(card)}
-            className="w-12 h-12 flex flex-col items-center justify-center pixel-btn bg-purple-600 text-white"
-          >
-            {card === "knight" ? (
-              <SwordPixel size={18} color="white" />
-            ) : (
-              <ScrollPixel size={18} color="white" />
-            )}
-            <span className="font-pixel text-[6px] truncate max-w-[40px]">{formatCardShort(card)}</span>
-          </button>
-        ))}
-
       {/* End Turn */}
       <button
         onClick={() => onAction({ type: "end-turn", playerIndex: localPlayerIndex })}
@@ -164,24 +132,4 @@ export default function ActionBar({
       </button>
     </div>
   );
-}
-
-function formatCardName(card: DevelopmentCardType): string {
-  switch (card) {
-    case "knight": return "Knight";
-    case "roadBuilding": return "Road Building";
-    case "yearOfPlenty": return "Year of Plenty";
-    case "monopoly": return "Monopoly";
-    case "victoryPoint": return "Victory Point";
-  }
-}
-
-function formatCardShort(card: DevelopmentCardType): string {
-  switch (card) {
-    case "knight": return "KNT";
-    case "roadBuilding": return "RDB";
-    case "yearOfPlenty": return "YOP";
-    case "monopoly": return "MON";
-    case "victoryPoint": return "VP";
-  }
 }

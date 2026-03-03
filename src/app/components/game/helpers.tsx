@@ -47,11 +47,11 @@ export function MiniCard({
 
 export function formatDevCard(card: DevelopmentCardType): string {
   switch (card) {
-    case "knight": return "Knight";
-    case "roadBuilding": return "Road Building";
-    case "yearOfPlenty": return "Year of Plenty";
-    case "monopoly": return "Monopoly";
-    case "victoryPoint": return "Victory Point";
+    case "knight": return "Knight — Move the robber and steal a resource from an adjacent player";
+    case "roadBuilding": return "Road Building — Place 2 roads for free";
+    case "yearOfPlenty": return "Year of Plenty — Take any 2 resources from the bank";
+    case "monopoly": return "Monopoly — Name a resource and steal all of it from every player";
+    case "victoryPoint": return "Victory Point — Worth 1 hidden VP (revealed at game end)";
   }
 }
 

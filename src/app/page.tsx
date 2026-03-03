@@ -4,13 +4,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PLAYER_COLOR_HEX } from "@/shared/constants";
 import { PLAYER_COLORS } from "@/shared/types/game";
-import type { GameConfig, PlayerConfig, GameMode, BuildingStyle, TurnTimer } from "@/shared/types/config";
-import { BUILDING_STYLES, DEFAULT_BUILDING_STYLE, TURN_TIMER_OPTIONS, VP_OPTIONS } from "@/shared/types/config";
+import type { GameConfig, PlayerConfig, GameMode, BuildingStyle, TurnTimer, BotPersonality } from "@/shared/types/config";
+import { BUILDING_STYLES, DEFAULT_BUILDING_STYLE, TURN_TIMER_OPTIONS, VP_OPTIONS, BOT_PERSONALITIES, DEFAULT_BOT_PERSONALITY } from "@/shared/types/config";
 import { STYLE_DEFS } from "@/shared/buildingStyles";
-import { StylePreview, RuleCard } from "@/app/components/ui/LobbyComponents";
+import { StylePreview, RuleCard, PersonalityIcon, PERSONALITY_LABELS } from "@/app/components/ui/LobbyComponents";
 import { useSocket } from "@/app/hooks/useSocket";
 import { useMultiplayerStore } from "@/app/stores/multiplayerStore";
-import { playClick, playNavigate, playError as playErrorSound } from "@/app/utils/sounds";
+import { playClick, playNavigate, playError as playErrorSound, startMusic, stopMusic } from "@/app/utils/sounds";
+import AudioControls from "@/app/components/ui/AudioControls";
 
 const ALL_COLORS = PLAYER_COLORS;
 const BOT_NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve"];
@@ -21,7 +22,6 @@ function defaultPlayer(name: string, color: string, isBot: boolean): PlayerConfi
 
 /** Blocky 8-bit cloud SVG */
 function PixelCloud({ size = 80, color = "white" }: { size?: number; color?: string }) {
-  // Scale factor relative to base 80px cloud
   const s = size / 80;
   return (
     <svg width={80 * s} height={40 * s} viewBox="0 0 80 40" shapeRendering="crispEdges">
@@ -35,20 +35,62 @@ function PixelCloud({ size = 80, color = "white" }: { size?: number; color?: str
   );
 }
 
-const CLOUDS = [
+/** Pixel-art sheep-shaped cloud — fluffy body with head, ears, legs and a tiny tail */
+function PixelSheepCloud({ size = 80, color = "white" }: { size?: number; color?: string }) {
+  const s = size / 96;
+  return (
+    <svg width={96 * s} height={56 * s} viewBox="0 0 96 56" shapeRendering="crispEdges">
+      {/* Fluffy wool body */}
+      <rect x="24" y="4"  width="12" height="4" fill={color} />
+      <rect x="44" y="4"  width="16" height="4" fill={color} />
+      <rect x="16" y="8"  width="52" height="4" fill={color} />
+      <rect x="12" y="12" width="60" height="4" fill={color} />
+      <rect x="12" y="16" width="64" height="4" fill={color} />
+      <rect x="16" y="20" width="60" height="4" fill={color} />
+      <rect x="16" y="24" width="56" height="4" fill={color} />
+      <rect x="20" y="28" width="48" height="4" fill={color} />
+      {/* Head */}
+      <rect x="72" y="12" width="16" height="4" fill={color} />
+      <rect x="76" y="8"  width="12" height="4" fill={color} />
+      <rect x="72" y="16" width="20" height="4" fill={color} />
+      <rect x="72" y="20" width="20" height="4" fill={color} />
+      <rect x="76" y="24" width="12" height="4" fill={color} />
+      {/* Eye */}
+      <rect x="84" y="16" width="4"  height="4" fill="#5a7ab5" />
+      {/* Ears */}
+      <rect x="76" y="4"  width="4"  height="4" fill={color} />
+      <rect x="84" y="4"  width="4"  height="8" fill={color} />
+      {/* Legs */}
+      <rect x="24" y="32" width="4"  height="8" fill={color} />
+      <rect x="32" y="32" width="4"  height="8" fill={color} />
+      <rect x="52" y="32" width="4"  height="8" fill={color} />
+      <rect x="60" y="32" width="4"  height="8" fill={color} />
+      {/* Hooves */}
+      <rect x="24" y="40" width="4"  height="4" fill="#c8b89a" />
+      <rect x="32" y="40" width="4"  height="4" fill="#c8b89a" />
+      <rect x="52" y="40" width="4"  height="4" fill="#c8b89a" />
+      <rect x="60" y="40" width="4"  height="4" fill="#c8b89a" />
+      {/* Tail */}
+      <rect x="12" y="16" width="4"  height="4" fill={color} />
+      <rect x="8"  y="12" width="4"  height="8" fill={color} />
+    </svg>
+  );
+}
+
+const CLOUDS: { top: string; size: number; duration: number; delay: number; opacity: number; sheep?: boolean }[] = [
   // Large foreground clouds
   { top: "4%",   size: 220, duration: 26, delay: -3,  opacity: 1    },
-  { top: "55%",  size: 200, duration: 30, delay: -10, opacity: 0.95 },
+  { top: "55%",  size: 200, duration: 30, delay: -10, opacity: 0.95, sheep: true },
   { top: "28%",  size: 180, duration: 22, delay: -6,  opacity: 1    },
   { top: "72%",  size: 190, duration: 28, delay: -20, opacity: 0.9  },
   // Medium mid-layer clouds
-  { top: "15%",  size: 140, duration: 34, delay: -14, opacity: 0.75 },
+  { top: "15%",  size: 140, duration: 34, delay: -14, opacity: 0.75, sheep: true },
   { top: "42%",  size: 150, duration: 38, delay: -25, opacity: 0.7  },
   { top: "65%",  size: 130, duration: 32, delay: -8,  opacity: 0.8  },
-  { top: "85%",  size: 160, duration: 36, delay: -30, opacity: 0.65 },
+  { top: "85%",  size: 160, duration: 36, delay: -30, opacity: 0.65, sheep: true },
   // Smaller distant clouds
   { top: "10%",  size: 100, duration: 46, delay: -18, opacity: 0.5  },
-  { top: "35%",  size: 90,  duration: 50, delay: -35, opacity: 0.45 },
+  { top: "35%",  size: 90,  duration: 50, delay: -35, opacity: 0.45, sheep: true },
   { top: "50%",  size: 110, duration: 44, delay: -40, opacity: 0.5  },
   { top: "78%",  size: 80,  duration: 52, delay: -12, opacity: 0.4  },
 ];
@@ -83,8 +125,25 @@ export default function Home() {
   const [stylePickerOpen, setStylePickerOpen] = useState<number | null>(null);
   const [editingNameIdx, setEditingNameIdx] = useState<number | null>(null);
   const [buildingStyles, setBuildingStyles] = useState<Record<number, BuildingStyle>>({});
+  const [personalities, setPersonalities] = useState<Record<number, BotPersonality>>({});
+  const [personalityPickerOpen, setPersonalityPickerOpen] = useState<number | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+
+  // Start music on first user interaction, stop when leaving page (navigating to game)
+  useEffect(() => {
+    const handleInteraction = () => {
+      startMusic();
+      window.removeEventListener("click", handleInteraction);
+    };
+    window.addEventListener("click", handleInteraction);
+    // If music was already started in a previous visit, resume it
+    startMusic();
+    return () => {
+      window.removeEventListener("click", handleInteraction);
+      stopMusic();
+    };
+  }, []);
 
   const isExpansion = players.length >= 5;
   const vpToWin = customVp;
@@ -146,6 +205,12 @@ export default function Home() {
     setStylePickerOpen(null);
   }
 
+  function pickPersonality(playerIdx: number, personality: BotPersonality) {
+    playClick();
+    setPersonalities((prev) => ({ ...prev, [playerIdx]: personality }));
+    setPersonalityPickerOpen(null);
+  }
+
   function startGame() {
     playNavigate();
     setValidationError(null);
@@ -174,6 +239,7 @@ export default function Home() {
         ...p,
         name: names[i],
         buildingStyle: buildingStyles[i] ?? DEFAULT_BUILDING_STYLE,
+        ...(p.isBot ? { personality: personalities[i] ?? DEFAULT_BOT_PERSONALITY } : {}),
       })),
       fairDice,
       friendlyRobber,
@@ -245,7 +311,7 @@ export default function Home() {
             opacity: c.opacity,
           }}
         >
-          <PixelCloud size={c.size} />
+          {c.sheep ? <PixelSheepCloud size={c.size} /> : <PixelCloud size={c.size} />}
         </div>
       ))}
     </>
@@ -255,6 +321,9 @@ export default function Home() {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
         {cloudLayer}
+
+        {/* Audio controls */}
+        <AudioControls className="absolute top-4 right-4 z-20" />
 
         {/* Title + play button */}
         <div className="relative z-10 flex flex-col items-center">
@@ -298,6 +367,9 @@ export default function Home() {
         &larr; BACK
       </button>
 
+      {/* Audio controls */}
+      <AudioControls className="absolute top-4 right-4 z-20" />
+
       {/* Main 3-column layout */}
       <div className="relative z-10 flex flex-1 min-h-0 items-center px-0">
         {/* ===== LEFT — Players ===== */}
@@ -316,7 +388,7 @@ export default function Home() {
                   <button
                     className="w-6 h-6 border-2 border-black cursor-pointer shrink-0 relative"
                     style={{ backgroundColor: PLAYER_COLOR_HEX[player.color] }}
-                    onClick={() => { setColorPickerOpen(colorPickerOpen === idx ? null : idx); setStylePickerOpen(null); }}
+                    onClick={() => { setColorPickerOpen(colorPickerOpen === idx ? null : idx); setStylePickerOpen(null); setPersonalityPickerOpen(null); }}
                     title={`Color: ${player.color}`}
                   >
                     <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold"
@@ -349,10 +421,21 @@ export default function Home() {
                     </span>
                   )}
 
+                  {/* Personality (bots only) */}
+                  {player.isBot && (
+                    <button
+                      className={`w-7 h-7 flex items-center justify-center border-2 shrink-0 ${personalityPickerOpen === idx ? "border-amber-500 bg-amber-50" : "border-gray-400 hover:border-gray-600"}`}
+                      onClick={() => { setPersonalityPickerOpen(personalityPickerOpen === idx ? null : idx); setStylePickerOpen(null); setColorPickerOpen(null); }}
+                      title={`Personality: ${PERSONALITY_LABELS[personalities[idx] ?? DEFAULT_BOT_PERSONALITY].name}`}
+                    >
+                      <PersonalityIcon personality={personalities[idx] ?? DEFAULT_BOT_PERSONALITY} size={16} />
+                    </button>
+                  )}
+
                   {/* Building style */}
                   <button
                     className={`w-7 h-7 flex items-center justify-center border-2 shrink-0 ${stylePickerOpen === idx ? "border-amber-500 bg-amber-50" : "border-gray-400 hover:border-gray-600"}`}
-                    onClick={() => { setStylePickerOpen(stylePickerOpen === idx ? null : idx); setColorPickerOpen(null); }}
+                    onClick={() => { setStylePickerOpen(stylePickerOpen === idx ? null : idx); setColorPickerOpen(null); setPersonalityPickerOpen(null); }}
                     title={`Style: ${STYLE_DEFS[buildingStyles[idx] ?? DEFAULT_BUILDING_STYLE].name}`}
                   >
                     <StylePreview
@@ -397,6 +480,35 @@ export default function Home() {
                           >
                             <span className="w-3 h-3 border border-black/30 shrink-0" style={{ backgroundColor: PLAYER_COLOR_HEX[c] }} />
                             <span className="font-pixel text-[5px] text-gray-700 uppercase">{c}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Personality picker dropdown */}
+                {personalityPickerOpen === idx && player.isBot && (
+                  <div className="absolute left-0 z-50 w-52 bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
+                    <div className="flex flex-col gap-0.5">
+                      {BOT_PERSONALITIES.map((p) => {
+                        const isCurrent = (personalities[idx] ?? DEFAULT_BOT_PERSONALITY) === p;
+                        const info = PERSONALITY_LABELS[p];
+                        return (
+                          <button
+                            key={p}
+                            className={`flex items-center gap-2 px-2 py-1 border-2 transition-all ${
+                              isCurrent
+                                ? "border-amber-500 bg-amber-50"
+                                : "border-gray-300 hover:border-gray-600 cursor-pointer"
+                            }`}
+                            onClick={() => pickPersonality(idx, p)}
+                          >
+                            <PersonalityIcon personality={p} size={14} />
+                            <div className="flex flex-col items-start">
+                              <span className="font-pixel text-[6px] text-gray-800">{info.name}</span>
+                              <span className="font-pixel text-[5px] text-gray-500">{info.description}</span>
+                            </div>
                           </button>
                         );
                       })}

@@ -34,6 +34,14 @@ interface PendingTradeUI {
   acceptors: number[];
 }
 
+interface BotTradeUI {
+  tradeState: GameState;
+  tradeId: string;
+  initiatingBot: number;
+  botResponses: Record<number, "pending" | "accepted" | "rejected">;
+  resolved: boolean;
+}
+
 export default function GamePage() {
   const router = useRouter();
   const gameViewRef = useRef<GameViewHandle>(null);
@@ -53,6 +61,7 @@ export default function GamePage() {
   const [flashSeven, setFlashSeven] = useState(false);
   const [flashingHexes, setFlashingHexes] = useState<Set<HexKey>>(new Set());
   const [pendingTradeUI, setPendingTradeUI] = useState<PendingTradeUI | null>(null);
+  const [botTradeUI, setBotTradeUI] = useState<BotTradeUI | null>(null);
   const [turnDeadline, setTurnDeadline] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const botTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -79,6 +88,9 @@ export default function GamePage() {
   useEffect(() => {
     if (!gameState || gameState.phase === "finished" || gameState.phase === "waiting") return;
     if (botTimerRef.current) { clearTimeout(botTimerRef.current); botTimerRef.current = null; }
+
+    // Don't auto-play while a bot trade is pending (waiting for human response)
+    if (botTradeUI) return;
 
     if (gameState.turnPhase === "discard") {
       const botDiscarder = gameState.discardingPlayers.find((pi) => botIndices.includes(pi));
@@ -136,6 +148,23 @@ export default function GamePage() {
   function executeBotAction(state: GameState, botIndex: number) {
     const action = decideBotAction(state, botIndex);
     if (!action) { setBotThinking(false); return; }
+
+    // Bot-initiated trade: show trade UI to human
+    if (action.type === "offer-trade") {
+      const result = applyAction(state, action);
+      if (result.valid && result.newState && result.newState.pendingTrade) {
+        playTrade();
+        setGameState(result.newState);
+        startBotTradeOrchestration(result.newState, botIndex);
+        setBotThinking(false);
+        return;
+      }
+      // Trade failed — continue bot's turn with another action
+      setBotThinking(false);
+      scheduleBotAction(state, botIndex, BOT_DELAY_MS);
+      return;
+    }
+
     const result = applyAction(state, action);
     if (result.valid && result.newState) {
       playActionSound(action.type);
@@ -168,6 +197,109 @@ export default function GamePage() {
     setBotThinking(false);
   }
 
+  // === BOT-INITIATED TRADE ORCHESTRATION ===
+  function startBotTradeOrchestration(tradeState: GameState, initiatingBot: number) {
+    const trade = tradeState.pendingTrade;
+    if (!trade) return;
+
+    const botResponses: Record<number, "pending" | "accepted" | "rejected"> = {};
+    // Other bots respond, human is asked via UI
+    for (const bi of botIndices) {
+      if (bi === initiatingBot) continue;
+      if (trade.toPlayer === null || trade.toPlayer === bi) {
+        botResponses[bi] = "pending";
+      }
+    }
+
+    setBotTradeUI({ tradeState, tradeId: trade.id, initiatingBot, botResponses, resolved: false });
+
+    // Schedule other bots to respond after a delay
+    const respondingBots = Object.keys(botResponses).map(Number);
+    tradeTimersRef.current.forEach(clearTimeout);
+    tradeTimersRef.current = [];
+
+    for (const bi of respondingBots) {
+      const timer = setTimeout(() => {
+        const decision = decideBotTradeResponse(tradeState, bi);
+        setBotTradeUI((prev) => {
+          if (!prev) return null;
+          return { ...prev, botResponses: { ...prev.botResponses, [bi]: decision === "accept" ? "accepted" : "rejected" } };
+        });
+      }, 600);
+      tradeTimersRef.current.push(timer);
+    }
+
+    // Auto-resolve after 8 seconds if human doesn't respond
+    const autoTimer = setTimeout(() => {
+      handleBotTradeReject();
+    }, 8000);
+    tradeTimersRef.current.push(autoTimer);
+  }
+
+  function handleBotTradeAccept() {
+    if (!botTradeUI) return;
+    const trade = botTradeUI.tradeState.pendingTrade;
+    if (!trade) { setBotTradeUI(null); return; }
+
+    const result = applyAction(botTradeUI.tradeState, {
+      type: "accept-trade",
+      playerIndex: HUMAN_PLAYER_INDEX,
+      tradeId: botTradeUI.tradeId,
+    });
+    if (result.valid && result.newState) {
+      playTrade();
+      setGameState(result.newState);
+      const bot = botTradeUI.initiatingBot;
+      setBotTradeUI(null);
+      // Continue bot's turn after trade
+      setTimeout(() => scheduleBotAction(result.newState!, bot, BOT_DELAY_MS), 400);
+    } else {
+      setBotTradeUI(null);
+    }
+  }
+
+  function handleBotTradeReject() {
+    if (!botTradeUI) return;
+    const trade = botTradeUI.tradeState.pendingTrade;
+    if (!trade) { setBotTradeUI(null); return; }
+
+    // Check if any other bot accepted — the initiating bot auto-picks the first acceptor
+    const acceptingBot = Object.entries(botTradeUI.botResponses).find(([, s]) => s === "accepted");
+
+    if (acceptingBot) {
+      const acceptorIdx = Number(acceptingBot[0]);
+      const result = applyAction(botTradeUI.tradeState, {
+        type: "accept-trade",
+        playerIndex: acceptorIdx,
+        tradeId: botTradeUI.tradeId,
+      });
+      if (result.valid && result.newState) {
+        playTrade();
+        setGameState(result.newState);
+        const bot = botTradeUI.initiatingBot;
+        setBotTradeUI(null);
+        setTimeout(() => scheduleBotAction(result.newState!, bot, BOT_DELAY_MS), 400);
+        return;
+      }
+    }
+
+    // No one accepted — cancel trade
+    const cancelResult = applyAction(botTradeUI.tradeState, {
+      type: "cancel-trade",
+      playerIndex: botTradeUI.initiatingBot,
+      tradeId: botTradeUI.tradeId,
+    });
+    if (cancelResult.valid && cancelResult.newState) {
+      setGameState(cancelResult.newState);
+      const bot = botTradeUI.initiatingBot;
+      setBotTradeUI(null);
+      // Continue bot's turn after failed trade
+      setTimeout(() => scheduleBotAction(cancelResult.newState!, bot, BOT_DELAY_MS), 400);
+    } else {
+      setBotTradeUI(null);
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (botTimerRef.current) clearTimeout(botTimerRef.current);
@@ -177,11 +309,18 @@ export default function GamePage() {
 
   // === SAFETY: clear stuck trade UI ===
   useEffect(() => {
-    if (!gameState?.pendingTrade && pendingTradeUI) {
-      tradeTimersRef.current.forEach(clearTimeout);
-      tradeTimersRef.current = [];
-      setPendingTradeUI(null);
-      gameViewRef.current?.closeTrade();
+    if (!gameState?.pendingTrade) {
+      if (pendingTradeUI) {
+        tradeTimersRef.current.forEach(clearTimeout);
+        tradeTimersRef.current = [];
+        setPendingTradeUI(null);
+        gameViewRef.current?.closeTrade();
+      }
+      if (botTradeUI) {
+        tradeTimersRef.current.forEach(clearTimeout);
+        tradeTimersRef.current = [];
+        setBotTradeUI(null);
+      }
     }
   }, [gameState?.pendingTrade]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -469,6 +608,60 @@ export default function GamePage() {
     }
   }
 
+  // Bot-initiated trade overlay
+  const botTradeOverlayNode = botTradeUI && gameState.pendingTrade ? (() => {
+    const trade = gameState.pendingTrade;
+    const bot = gameState.players[botTradeUI.initiatingBot];
+    const botColor = PLAYER_COLOR_HEX[bot.color];
+    return (
+      <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-4 py-3 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-pixel text-[9px] font-bold" style={{ color: botColor }}>{bot.name.toUpperCase()}</span>
+            <span className="font-pixel text-[8px] text-gray-700">OFFERS YOU A TRADE:</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <span className="font-pixel text-[7px] text-gray-500">GIVES:</span>
+              <div className="flex gap-0.5">
+                {Object.entries(trade.offering).flatMap(([r, amt]) =>
+                  Array.from({ length: amt! }, (_, i) => (
+                    <MiniCard key={`bo-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="green" />
+                  ))
+                )}
+              </div>
+            </div>
+            <span className="font-pixel text-[8px] text-gray-400">FOR</span>
+            <div className="flex items-center gap-1">
+              <span className="font-pixel text-[7px] text-gray-500">WANTS:</span>
+              <div className="flex gap-0.5">
+                {Object.entries(trade.requesting).flatMap(([r, amt]) =>
+                  Array.from({ length: amt! }, (_, i) => (
+                    <MiniCard key={`br-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="red" />
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={handleBotTradeAccept}
+              className="px-4 py-1.5 bg-green-600 text-white font-pixel text-[8px] border-2 border-black hover:bg-green-500"
+            >
+              ACCEPT
+            </button>
+            <button
+              onClick={handleBotTradeReject}
+              className="px-4 py-1.5 bg-red-600 text-white font-pixel text-[8px] border-2 border-black hover:bg-red-500"
+            >
+              REJECT
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  })() : null;
+
   // Trade response overlay (hotseat-only)
   const noDeals = pendingTradeUI?.resolved &&
     pendingTradeUI.acceptors.length === 0 &&
@@ -554,8 +747,8 @@ export default function GamePage() {
         turnDeadline={turnDeadline}
         error={error}
         botThinking={botThinking}
-        tradeOverlay={tradeOverlayNode}
-        showTradeOverlay={pendingTradeUI !== null}
+        tradeOverlay={botTradeOverlayNode || tradeOverlayNode}
+        showTradeOverlay={pendingTradeUI !== null || botTradeUI !== null}
         announcement={announcement}
         onDismissAnnouncement={() => setAnnouncement(null)}
       />

@@ -2,7 +2,8 @@ import crypto from "crypto";
 import type { TypedServer, TypedSocket, Room, PlayerSlot } from "./types.js";
 import type { LobbyPlayer, LobbyConfig } from "@/shared/types/messages";
 import type { BuildingStyle } from "@/shared/types/config";
-import { BUILDING_STYLES, TURN_TIMER_OPTIONS, VP_OPTIONS } from "@/shared/types/config";
+import { BUILDING_STYLES, TURN_TIMER_OPTIONS, VP_OPTIONS, BOT_PERSONALITIES } from "@/shared/types/config";
+import type { BotPersonality } from "@/shared/types/config";
 import { PLAYER_COLORS } from "@/shared/types/game";
 import { handleStartGame, handleGameAction, scheduleBotActions, broadcastState } from "./gameSession.js";
 import { filterStateForPlayer } from "./stateFilter.js";
@@ -87,7 +88,7 @@ export function handleConnection(io: TypedServer, socket: TypedSocket) {
   });
 
   socket.on("room:add-bot", ({ difficulty, personality }) => {
-    handleAddBot(io, socket, difficulty);
+    handleAddBot(io, socket, difficulty, personality);
   });
 
   socket.on("room:remove-bot", ({ playerIndex }) => {
@@ -106,8 +107,8 @@ export function handleConnection(io: TypedServer, socket: TypedSocket) {
     handleUpdatePlayer(io, socket, color, buildingStyle);
   });
 
-  socket.on("room:update-bot", ({ playerIndex, name, color }) => {
-    handleUpdateBot(io, socket, playerIndex, name, color);
+  socket.on("room:update-bot", ({ playerIndex, name, color, personality }) => {
+    handleUpdateBot(io, socket, playerIndex, name, color, personality);
   });
 
   socket.on("room:leave-game", () => {
@@ -228,7 +229,7 @@ function handleJoin(
   broadcastLobbyState(io, room);
 }
 
-function handleAddBot(io: TypedServer, socket: TypedSocket, difficulty: string) {
+function handleAddBot(io: TypedServer, socket: TypedSocket, difficulty: string, personality?: string) {
   const room = getRoomForSocket(socket.id);
   if (!room || room.hostSocketId !== socket.id) return;
   if (room.gameState) return; // can't add bots mid-game
@@ -237,6 +238,10 @@ function handleAddBot(io: TypedServer, socket: TypedSocket, difficulty: string) 
   const botNames = ["Alice", "Bob", "Carol", "Dave", "Eve"];
   const usedNames = new Set(room.players.map((p) => p.name));
   const name = botNames.find((n) => !usedNames.has(n)) ?? `Bot ${room.players.length}`;
+
+  // Validate personality
+  const validPersonality = personality && (BOT_PERSONALITIES as readonly string[]).includes(personality)
+    ? personality as BotPersonality : undefined;
 
   const newIndex = room.players.length;
   room.players.push({
@@ -247,6 +252,7 @@ function handleAddBot(io: TypedServer, socket: TypedSocket, difficulty: string) 
     reconnectToken: null,
     disconnectedAt: null,
     color: firstUnusedColor(room),
+    personality: validPersonality,
   });
   broadcastLobbyState(io, room);
 }
@@ -388,6 +394,7 @@ function handleUpdateBot(
   playerIndex: number,
   name?: string,
   color?: string,
+  personality?: string,
 ) {
   const room = getRoomForSocket(socket.id);
   if (!room || room.hostSocketId !== socket.id) return;
@@ -406,6 +413,12 @@ function handleUpdateBot(
     const other = room.players.find((p) => p !== slot && p.color === color);
     if (other) other.color = slot.color;
     slot.color = color;
+  }
+
+  if (personality !== undefined) {
+    if ((BOT_PERSONALITIES as readonly string[]).includes(personality)) {
+      slot.personality = personality as BotPersonality;
+    }
   }
 
   broadcastLobbyState(io, room);

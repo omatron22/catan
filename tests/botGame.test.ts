@@ -2,19 +2,63 @@ import { describe, it, expect } from "vitest";
 import { createGame, applyAction } from "@/server/engine/gameEngine";
 import { decideBotAction } from "@/server/bots/botController";
 import type { GameState } from "@/shared/types/game";
+import type { GameConfig } from "@/shared/types/config";
+import type { BotPersonality } from "@/shared/types/config";
+import { BOT_PERSONALITIES } from "@/shared/types/config";
+
+function createGameWithPersonality(id: string, names: string[], personality: BotPersonality): GameState {
+  const config: GameConfig = {
+    players: names.map((name, i) => ({
+      name,
+      color: ["red", "blue", "white", "orange"][i],
+      isBot: true,
+      personality,
+    })),
+    fairDice: false,
+    friendlyRobber: false,
+    gameMode: "classic",
+    vpToWin: 10,
+    turnTimer: 0,
+    expansionBoard: false,
+  };
+  return createGame(id, names, config);
+}
+
+function createMixedPersonalityGame(id: string): GameState {
+  const personalities: BotPersonality[] = ["balanced", "aggressive", "builder", "trader"];
+  const names = ["Balanced", "Aggro", "Builder", "Trader"];
+  const config: GameConfig = {
+    players: names.map((name, i) => ({
+      name,
+      color: ["red", "blue", "white", "orange"][i],
+      isBot: true,
+      personality: personalities[i],
+    })),
+    fairDice: false,
+    friendlyRobber: false,
+    gameMode: "classic",
+    vpToWin: 10,
+    turnTimer: 0,
+    expansionBoard: false,
+  };
+  return createGame(id, names, config);
+}
 
 /**
  * Run a complete bot-only game.
  * Handles invalid bot actions gracefully (skips to end-turn as fallback).
+ * Handles bot-initiated trades (offer-trade actions).
  */
-function runBotGame(playerCount: number, maxTurns = 1000): {
+function runBotGame(initialState: GameState, maxTurns = 1500): {
   state: GameState;
   turns: number;
   finished: boolean;
+  tradeCount: number;
 } {
-  let state = createGame("bot-test", Array.from({ length: playerCount }, (_, i) => `Bot${i + 1}`));
+  let state = initialState;
   let turns = 0;
   let consecutiveFailures = 0;
+  let tradeCount = 0;
 
   while (state.phase !== "finished" && turns < maxTurns) {
     turns++;
@@ -42,6 +86,47 @@ function runBotGame(playerCount: number, maxTurns = 1000): {
       continue;
     }
 
+    // Handle bot-initiated player trades
+    if (action.type === "offer-trade") {
+      tradeCount++;
+      const offerResult = applyAction(state, action);
+      if (offerResult.valid && offerResult.newState && offerResult.newState.pendingTrade) {
+        // Auto: first other bot tries to accept
+        let accepted = false;
+        for (let i = 0; i < state.players.length; i++) {
+          if (i === botIndex) continue;
+          const acceptResult = applyAction(offerResult.newState, {
+            type: "accept-trade",
+            playerIndex: i,
+            tradeId: offerResult.newState.pendingTrade.id,
+          });
+          if (acceptResult.valid && acceptResult.newState) {
+            state = acceptResult.newState;
+            accepted = true;
+            break;
+          }
+        }
+        if (!accepted) {
+          const cancelResult = applyAction(offerResult.newState, {
+            type: "cancel-trade",
+            playerIndex: botIndex,
+            tradeId: offerResult.newState.pendingTrade.id,
+          });
+          state = cancelResult.valid && cancelResult.newState ? cancelResult.newState : offerResult.newState;
+        }
+        consecutiveFailures = 0;
+        continue;
+      }
+      // Trade offer failed — try end turn
+      if (state.turnPhase === "trade-or-build") {
+        const fallback = applyAction(state, { type: "end-turn", playerIndex: botIndex });
+        if (fallback.valid) { state = fallback.newState!; consecutiveFailures = 0; continue; }
+      }
+      consecutiveFailures++;
+      if (consecutiveFailures > 20) break;
+      continue;
+    }
+
     const result = applyAction(state, action);
     if (!result.valid) {
       // Bot made invalid move — try end turn as fallback
@@ -62,25 +147,28 @@ function runBotGame(playerCount: number, maxTurns = 1000): {
     consecutiveFailures = 0;
   }
 
-  return { state, turns, finished: state.phase === "finished" };
+  return { state, turns, finished: state.phase === "finished", tradeCount };
 }
 
 describe("Bot Game Simulation", () => {
   it("completes a 4-player bot game", () => {
-    const { state, turns, finished } = runBotGame(4);
+    const initial = createGame("bot-test", ["Bot1", "Bot2", "Bot3", "Bot4"]);
+    const { state, turns, finished } = runBotGame(initial);
     expect(finished).toBe(true);
     expect(state.winner).not.toBeNull();
     console.log(`4p game: ${turns} turns, winner: ${state.players[state.winner!].name} with ${state.players[state.winner!].victoryPoints + state.players[state.winner!].hiddenVictoryPoints} VP`);
   });
 
   it("completes a 3-player bot game", () => {
-    const { state, turns, finished } = runBotGame(3);
+    const initial = createGame("bot-test", ["Bot1", "Bot2", "Bot3"]);
+    const { state, turns, finished } = runBotGame(initial);
     expect(finished).toBe(true);
     console.log(`3p game: ${turns} turns`);
   });
 
   it("completes a 2-player bot game", () => {
-    const { state, turns, finished } = runBotGame(2);
+    const initial = createGame("bot-test", ["Bot1", "Bot2"]);
+    const { state, turns, finished } = runBotGame(initial);
     expect(finished).toBe(true);
     console.log(`2p game: ${turns} turns`);
   });
@@ -88,10 +176,48 @@ describe("Bot Game Simulation", () => {
   it("completes 10 consecutive 4-player games", () => {
     let totalTurns = 0;
     for (let i = 0; i < 10; i++) {
-      const { state, turns, finished } = runBotGame(4);
+      const initial = createGame(`bot-test-${i}`, ["Bot1", "Bot2", "Bot3", "Bot4"]);
+      const { state, turns, finished } = runBotGame(initial);
       expect(finished).toBe(true);
       totalTurns += turns;
     }
     console.log(`10 games average: ${Math.round(totalTurns / 10)} turns`);
+  });
+});
+
+describe("Personality Bot Games", () => {
+  for (const personality of BOT_PERSONALITIES) {
+    it(`completes a 4-player ${personality} game`, () => {
+      const initial = createGameWithPersonality(
+        `${personality}-test`,
+        ["Bot1", "Bot2", "Bot3", "Bot4"],
+        personality,
+      );
+      const { state, turns, finished, tradeCount } = runBotGame(initial);
+      expect(finished).toBe(true);
+      expect(state.winner).not.toBeNull();
+      console.log(`${personality} game: ${turns} turns, ${tradeCount} trades, winner: ${state.players[state.winner!].name}`);
+    });
+  }
+
+  it("completes a mixed-personality game", () => {
+    const initial = createMixedPersonalityGame("mixed-test");
+    const { state, turns, finished, tradeCount } = runBotGame(initial);
+    expect(finished).toBe(true);
+    expect(state.winner).not.toBeNull();
+    console.log(`Mixed game: ${turns} turns, ${tradeCount} trades, winner: ${state.players[state.winner!].name}`);
+  });
+
+  it("trader personality initiates trades during games", () => {
+    // Run 3 trader games and check that at least one has trades
+    let totalTrades = 0;
+    for (let i = 0; i < 3; i++) {
+      const initial = createGameWithPersonality(`trader-trade-${i}`, ["Bot1", "Bot2", "Bot3", "Bot4"], "trader");
+      const { tradeCount } = runBotGame(initial);
+      totalTrades += tradeCount;
+    }
+    // Trader personality has 0.8 trade chance — over 3 games it should trade at least once
+    expect(totalTrades).toBeGreaterThan(0);
+    console.log(`Trader games: ${totalTrades} total trades across 3 games`);
   });
 });

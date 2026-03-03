@@ -26,7 +26,7 @@ import {
   MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES,
   EXPANSION_MAX_ROADS, EXPANSION_MAX_SETTLEMENTS, EXPANSION_MAX_CITIES,
 } from "@/shared/constants";
-import { getMasterVolume, setMasterVolume, playClick, playMenuOpen, playMenuClose, playConfirm } from "@/app/utils/sounds";
+import { getMasterVolume, setMasterVolume, updateMusicVolume, playClick, playMenuOpen, playMenuClose, playConfirm } from "@/app/utils/sounds";
 
 type AnyGameState = GameState | ClientGameState;
 
@@ -438,16 +438,18 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             )}
           </div>
 
-          {/* Menu button */}
-          <button
-            onClick={() => { playMenuOpen(); setMenuOpen(true); }}
-            className="absolute top-2 left-2 z-30 w-9 h-9 flex flex-col items-center justify-center gap-[3px] bg-[#f0e6d0]/90 hover:bg-[#f0e6d0] border-2 border-[#8b7355] transition-colors pixel-border-sm cursor-pointer"
-            title="Menu"
-          >
-            <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
-            <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
-            <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
-          </button>
+          {/* Menu button + audio controls */}
+          <div className="absolute top-2 left-2 z-30 flex items-center gap-1">
+            <button
+              onClick={() => { playMenuOpen(); setMenuOpen(true); }}
+              className="w-9 h-9 flex flex-col items-center justify-center gap-[3px] bg-[#f0e6d0]/90 hover:bg-[#f0e6d0] border-2 border-[#8b7355] transition-colors pixel-border-sm cursor-pointer"
+              title="Menu"
+            >
+              <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
+              <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
+              <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
+            </button>
+          </div>
 
           {/* Turn timer (top-right, always visible when active) */}
           {turnDeadline && (
@@ -870,7 +872,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                   min={0}
                   max={100}
                   value={volume}
-                  onChange={(e) => { const v = Number(e.target.value); setVolume(v); setMasterVolume(v); }}
+                  onChange={(e) => { const v = Number(e.target.value); setVolume(v); setMasterVolume(v); updateMusicVolume(); }}
                   className="flex-1 h-2 accent-[#8b7355] cursor-pointer"
                 />
                 <span className="font-pixel text-[9px] text-[#5a3e28] w-8 text-right">{volume}%</span>

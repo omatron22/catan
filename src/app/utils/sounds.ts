@@ -13,6 +13,60 @@ export function setMasterVolume(v: number) {
   try { localStorage.setItem("catan-volume", String(_masterVolume)); } catch {}
 }
 
+// --- SFX mute (persisted) ---
+let _sfxMuted = false;
+try {
+  const stored = typeof localStorage !== "undefined" ? localStorage.getItem("catan-sfx-muted") : null;
+  if (stored === "true") _sfxMuted = true;
+} catch {}
+
+export function isSfxMuted(): boolean { return _sfxMuted; }
+export function setSfxMuted(m: boolean) {
+  _sfxMuted = m;
+  try { localStorage.setItem("catan-sfx-muted", String(m)); } catch {}
+}
+
+// --- Background music ---
+let _bgMusic: HTMLAudioElement | null = null;
+let _musicMuted = false;
+let _musicVolume = 0.3;
+try {
+  const stored = typeof localStorage !== "undefined" ? localStorage.getItem("catan-music-muted") : null;
+  if (stored === "true") _musicMuted = true;
+} catch {}
+
+export function isMusicMuted(): boolean { return _musicMuted; }
+export function setMusicMuted(m: boolean) {
+  _musicMuted = m;
+  try { localStorage.setItem("catan-music-muted", String(m)); } catch {}
+  if (_bgMusic) {
+    _bgMusic.muted = m;
+  }
+}
+
+export function startMusic() {
+  if (_bgMusic) return; // already playing
+  const audio = new Audio("/music/gabemar.m4a");
+  audio.loop = true;
+  audio.volume = _musicVolume * (_masterVolume / 100);
+  audio.muted = _musicMuted;
+  audio.play().catch(() => {}); // autoplay may be blocked, that's ok
+  _bgMusic = audio;
+}
+
+export function stopMusic() {
+  if (!_bgMusic) return;
+  _bgMusic.pause();
+  _bgMusic.currentTime = 0;
+  _bgMusic = null;
+}
+
+export function updateMusicVolume() {
+  if (_bgMusic) {
+    _bgMusic.volume = _musicVolume * (_masterVolume / 100);
+  }
+}
+
 function getContext(): AudioContext {
   if (!audioCtx) {
     audioCtx = new AudioContext();
@@ -25,7 +79,7 @@ function getContext(): AudioContext {
 
 /** Helper: play a square wave note (classic 8-bit sound) */
 function playSquareNote(freq: number, startTime: number, duration: number, volume = 0.08) {
-  if (_masterVolume === 0) return;
+  if (_masterVolume === 0 || _sfxMuted) return;
   const ctx = getContext();
   const vol = volume * (_masterVolume / 100);
   const osc = ctx.createOscillator();
@@ -82,7 +136,7 @@ export function playTurnNotification() {
 
 /** Robber move — ominous low descending tone */
 export function playRobber() {
-  if (_masterVolume === 0) return;
+  if (_masterVolume === 0 || _sfxMuted) return;
   const ctx = getContext();
   const t = ctx.currentTime;
   const vol = 0.1 * (_masterVolume / 100);

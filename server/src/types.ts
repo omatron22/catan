@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { GameState } from "@/shared/types/game";
 import type { ClientMessages, ServerMessages, LobbyConfig } from "@/shared/types/messages";
-import type { GameConfig, BuildingStyle } from "@/shared/types/config";
+import type { GameConfig, BuildingStyle, BotPersonality } from "@/shared/types/config";
 
 export interface PlayerSlot {
   index: number;
@@ -12,6 +12,7 @@ export interface PlayerSlot {
   disconnectedAt: number | null; // timestamp when disconnected
   color: string;
   buildingStyle?: BuildingStyle;
+  personality?: BotPersonality;
 }
 
 export interface Room {

@@ -80,8 +80,9 @@ export function scoreVertex(state: GameState, vertex: VertexKey, playerIndex: nu
 /**
  * Pick the best vertex for settlement placement during setup.
  * For second settlement, also considers complementing the first settlement's resources.
+ * When context is provided, uses turn order awareness and personality diversity.
  */
-export function pickSetupVertex(state: GameState, playerIndex: number): VertexKey | null {
+export function pickSetupVertex(state: GameState, playerIndex: number, context?: BotStrategicContext): VertexKey | null {
   const player = state.players[playerIndex];
   const isSecondSettlement = player.settlements.length === 1;
 
@@ -97,7 +98,32 @@ export function pickSetupVertex(state: GameState, playerIndex: number): VertexKe
       const firstResources = getResourcesAtVertex(state, player.settlements[0]);
       const thisResources = getResourcesAtVertex(state, vk);
       const newResources = thisResources.filter((r) => !firstResources.includes(r));
-      score += newResources.length * 3; // Bonus per new resource type
+      const diversityMultiplier = context ? context.weights.setupDiversity : 1.0;
+      score += newResources.length * 3 * diversityMultiplier;
+    }
+
+    // Turn order awareness: later picks get bigger complementary resource bonus
+    if (context) {
+      const turnPosition = context.turnOrderPosition;
+      const totalPlayers = context.playerCount;
+
+      if (turnPosition === 0) {
+        // First pick: prioritize raw probability (dots)
+        const adjacentHexes = hexesAdjacentToVertex(vk);
+        let dots = 0;
+        for (const hexCoord of adjacentHexes) {
+          const hex = state.board.hexes[hexKey(hexCoord)];
+          if (!hex || !hex.number) continue;
+          dots += NUMBER_DOTS[hex.number] || 0;
+        }
+        score += dots * 0.5;
+      } else {
+        // Later positions: bigger complementary bonus scaled by position
+        const positionFactor = turnPosition / (totalPlayers - 1);
+        const thisResources = getResourcesAtVertex(state, vk);
+        const uniqueResourceTypes = new Set(thisResources);
+        score += uniqueResourceTypes.size * positionFactor * 2 * context.weights.setupDiversity;
+      }
     }
 
     if (score > bestScore) {
@@ -112,8 +138,9 @@ export function pickSetupVertex(state: GameState, playerIndex: number): VertexKe
 /**
  * Pick the best edge for road placement during setup.
  * Road must connect to the given settlement vertex.
+ * When context is provided, roads toward higher-value future vertices are preferred.
  */
-export function pickSetupRoad(state: GameState, playerIndex: number, settlementVertex: VertexKey): EdgeKey | null {
+export function pickSetupRoad(state: GameState, playerIndex: number, settlementVertex: VertexKey, context?: BotStrategicContext): EdgeKey | null {
   const edges = edgesAtVertex(settlementVertex);
   let bestEdge: EdgeKey | null = null;
   let bestScore = -Infinity;
@@ -131,7 +158,10 @@ export function pickSetupRoad(state: GameState, playerIndex: number, settlementV
     const reachable = adjacentVertices(otherEnd);
     for (const rv of reachable) {
       const vs = scoreVertex(state, rv, playerIndex);
-      if (vs > 0) score += vs * 0.3; // Discount future potential
+      if (vs > 0) {
+        const discount = context ? 0.4 : 0.3; // Higher lookahead value with context
+        score += vs * discount;
+      }
     }
 
     // Prefer roads that point toward the center of the board

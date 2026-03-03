@@ -9,14 +9,105 @@ import { scoreVertex } from "./placement";
 import { calculateLongestRoad } from "@/server/engine/longestRoad";
 import type { BotStrategicContext } from "./context";
 
+interface RoadPath {
+  path: EdgeKey[];
+  targetVertex: VertexKey;
+  targetScore: number;
+}
+
+/**
+ * BFS from road frontier to find the best multi-road path toward a high-value empty vertex.
+ */
+export function planRoadPath(
+  state: GameState,
+  playerIndex: number,
+  context: BotStrategicContext,
+  maxDepth: number = 3,
+): RoadPath | null {
+  // Find frontier vertices (vertices at the end of our road network with no building)
+  const frontierVertices = new Set<VertexKey>();
+  for (const road of state.players[playerIndex].roads) {
+    const [v1, v2] = edgeEndpoints(road);
+    for (const v of [v1, v2]) {
+      const building = state.board.vertices[v];
+      if (!building || building.playerIndex === playerIndex) {
+        frontierVertices.add(v);
+      }
+    }
+  }
+
+  // BFS: queue items are { vertex, path (edges traversed), depth }
+  interface QueueItem {
+    vertex: VertexKey;
+    path: EdgeKey[];
+    depth: number;
+  }
+
+  let bestPath: RoadPath | null = null;
+  let bestScore = -Infinity;
+  const visited = new Set<VertexKey>();
+
+  const queue: QueueItem[] = [];
+  for (const fv of frontierVertices) {
+    queue.push({ vertex: fv, path: [], depth: 0 });
+    visited.add(fv);
+  }
+
+  while (queue.length > 0) {
+    const item = queue.shift()!;
+    if (item.depth >= maxDepth) continue;
+
+    const adjEdges = edgesAtVertex(item.vertex);
+    for (const ek of adjEdges) {
+      if (state.board.edges[ek] !== null) continue; // already occupied
+
+      const [v1, v2] = edgeEndpoints(ek);
+      const otherEnd = v1 === item.vertex ? v2 : v1;
+
+      if (visited.has(otherEnd)) continue;
+
+      // Can't pass through opponent buildings
+      const otherBuilding = state.board.vertices[otherEnd];
+      if (otherBuilding && otherBuilding.playerIndex !== playerIndex) continue;
+
+      const newPath = [...item.path, ek];
+      visited.add(otherEnd);
+
+      // Score this vertex as a potential settlement site
+      if (!otherBuilding) {
+        const vs = scoreVertex(state, otherEnd, playerIndex);
+        if (vs > 0) {
+          // Discount by path length — closer targets are better
+          const discountedScore = vs / (1 + newPath.length * 0.3);
+          if (discountedScore > bestScore) {
+            bestScore = discountedScore;
+            bestPath = { path: newPath, targetVertex: otherEnd, targetScore: vs };
+          }
+        }
+      }
+
+      if (item.depth + 1 < maxDepth) {
+        queue.push({ vertex: otherEnd, path: newPath, depth: item.depth + 1 });
+      }
+    }
+  }
+
+  return bestPath;
+}
+
 /**
  * Pick the best edge for road building during main game.
- * Considers: expansion toward good settlements, longest road progress.
+ * Considers: expansion toward good settlements, longest road progress,
+ * multi-road path planning, and opponent blocking.
  */
 export function pickBuildRoad(state: GameState, playerIndex: number, context?: BotStrategicContext): EdgeKey | null {
   const currentRoadLength = context?.ownRoadLength ?? calculateLongestRoad(state, playerIndex);
   let bestEdge: EdgeKey | null = null;
   let bestScore = -Infinity;
+
+  // Compute planned road path for multi-road planning
+  const roadPlan = context ? planRoadPath(state, playerIndex, context) : null;
+  const planEdgeSet = roadPlan ? new Set(roadPlan.path) : new Set<EdgeKey>();
 
   for (const [ek, road] of Object.entries(state.board.edges)) {
     if (road !== null) continue;
@@ -42,6 +133,33 @@ export function pickBuildRoad(state: GameState, playerIndex: number, context?: B
       for (const nv of nextVerts) {
         const ns = scoreVertex(state, nv, playerIndex);
         if (ns > 0) score += ns * 0.1;
+      }
+    }
+
+    // --- Multi-road path planning bonus ---
+    if (planEdgeSet.has(ek)) {
+      score += (roadPlan!.targetScore * 0.8); // Heavily boost roads on the planned path
+    }
+
+    // --- Opponent blocking ---
+    if (context) {
+      for (const v of [v1, v2]) {
+        const building = state.board.vertices[v];
+        if (building) continue; // already occupied
+
+        // Check if an opponent is 1-2 roads from this vertex
+        const adjEdges = edgesAtVertex(v);
+        for (const ae of adjEdges) {
+          if (ae === ek) continue;
+          const roadData = state.board.edges[ae];
+          if (roadData && roadData.playerIndex !== playerIndex) {
+            // Opponent has a road near this vertex — check its value
+            const vs = scoreVertex(state, v, playerIndex);
+            if (vs > 5) {
+              score += vs * 0.3 * context.weights.robberAggression;
+            }
+          }
+        }
       }
     }
 

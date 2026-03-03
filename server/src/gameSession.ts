@@ -32,6 +32,7 @@ export function handleStartGame(io: TypedServer, socket: TypedSocket) {
       color: p.color,
       isBot: p.isBot,
       buildingStyle: p.buildingStyle,
+      ...(p.isBot && p.personality ? { personality: p.personality } : {}),
     })),
     fairDice: room.lobbyConfig.fairDice,
     friendlyRobber: room.lobbyConfig.friendlyRobber,

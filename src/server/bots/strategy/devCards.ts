@@ -16,19 +16,29 @@ export function pickDevCardToPlay(
   if (player.developmentCards.length === 0) return null;
 
   const cards = player.developmentCards;
+  const knightEagerness = context?.weights.knightEagerness ?? 1.0;
+
+  // --- Endgame: play VP cards if they would win ---
+  if (context?.isEndgame && cards.includes("victoryPoint")) {
+    const vpCards = cards.filter((c) => c === "victoryPoint").length;
+    if (context.ownVP + vpCards >= context.vpToWin) {
+      // VP cards are auto-revealed at win — no action needed
+      // But let's prioritize other cards that help win
+    }
+  }
 
   // --- Knight with army awareness ---
   if (cards.includes("knight")) {
-    let playProbability = 0.4; // base probability
+    let playProbability = 0.4 * knightEagerness;
 
     if (context) {
-      if (context.distanceToLargestArmy === 0) playProbability = 0.5; // maintain lead
-      else if (context.distanceToLargestArmy <= 1) playProbability = 1.0;
-      else if (context.distanceToLargestArmy <= 2) playProbability = 0.85;
-      else if (context.distanceToLargestArmy <= 3) playProbability = 0.65;
+      if (context.distanceToLargestArmy === 0) playProbability = 0.5 * knightEagerness;
+      else if (context.distanceToLargestArmy <= 1) playProbability = Math.min(1.0, 1.0 * knightEagerness);
+      else if (context.distanceToLargestArmy <= 2) playProbability = 0.85 * knightEagerness;
+      else if (context.distanceToLargestArmy <= 3) playProbability = 0.65 * knightEagerness;
     }
 
-    if (Math.random() < playProbability) {
+    if (Math.random() < Math.min(1, playProbability)) {
       return { card: "knight" };
     }
   }
@@ -62,9 +72,9 @@ export function pickDevCardToPlay(
     }
   }
 
-  // Play monopoly if an opponent likely has a lot of something we need
+  // Play monopoly — smarter version that considers build goal
   if (cards.includes("monopoly")) {
-    const target = pickMonopolyResource(state, playerIndex);
+    const target = pickMonopolyResource(state, playerIndex, context);
     if (target) {
       return { card: "monopoly", params: { resource: target } };
     }
@@ -80,9 +90,9 @@ export function pickDevCardToPlay(
 
 /**
  * Get the resources we need most, up to `count`.
- * Enhanced: if close to largest army, prioritize dev card resources.
+ * Prioritizes build goal resources first, then falls back to general needs.
  */
-function getMostNeededResources(
+export function getMostNeededResources(
   state: GameState,
   playerIndex: number,
   count: number,
@@ -90,6 +100,16 @@ function getMostNeededResources(
 ): Resource[] {
   const player = state.players[playerIndex];
   const needed: Resource[] = [];
+
+  // Prioritize build goal resources
+  if (context?.buildGoal) {
+    for (const [res, amount] of Object.entries(context.buildGoal.missingResources)) {
+      if ((amount || 0) > 0 && !needed.includes(res as Resource)) {
+        needed.push(res as Resource);
+        if (needed.length >= count) return needed;
+      }
+    }
+  }
 
   // If close to army and need dev card, prioritize those resources
   if (context && context.distanceToLargestArmy <= 2 && context.strategy === "development") {
@@ -131,10 +151,13 @@ function getMostNeededResources(
 
 /**
  * Pick the best resource for monopoly.
+ * Smarter: scores each resource as opponentHoldings × needMultiplier.
+ * Only plays if expected gain >= 2.
  */
-function pickMonopolyResource(state: GameState, playerIndex: number): Resource | null {
+function pickMonopolyResource(state: GameState, playerIndex: number, context?: BotStrategicContext): Resource | null {
   let bestResource: Resource | null = null;
-  let bestEstimate = 2;
+  let bestScore = 0;
+  const minGain = context?.isEndgame ? 1 : 2;
 
   for (const res of ALL_RESOURCES) {
     let totalOpponentCards = 0;
@@ -143,8 +166,18 @@ function pickMonopolyResource(state: GameState, playerIndex: number): Resource |
       totalOpponentCards += p.resources[res];
     }
 
-    if (totalOpponentCards > bestEstimate) {
-      bestEstimate = totalOpponentCards;
+    if (totalOpponentCards < minGain) continue;
+
+    // Need multiplier: high if we need this resource for our build goal
+    let needMultiplier = 1;
+    if (context?.buildGoal?.missingResources[res]) {
+      needMultiplier = 3; // Big bonus for resources we need
+    }
+
+    const score = totalOpponentCards * needMultiplier;
+
+    if (score > bestScore) {
+      bestScore = score;
       bestResource = res;
     }
   }

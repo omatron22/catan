@@ -1,8 +1,10 @@
 import type { GameState, Resource } from "@/shared/types/game";
 import type { HexKey } from "@/shared/types/coordinates";
+import type { BotPersonality } from "@/shared/types/config";
 import { hexVertices, hexKey } from "@/shared/utils/hexMath";
 import { calculateLongestRoad } from "@/server/engine/longestRoad";
-import { NUMBER_DOTS, TERRAIN_RESOURCE, ALL_RESOURCES, MIN_KNIGHTS_FOR_LARGEST_ARMY, MIN_ROADS_FOR_LONGEST_ROAD } from "@/shared/constants";
+import { NUMBER_DOTS, TERRAIN_RESOURCE, ALL_RESOURCES, BUILDING_COSTS, MIN_KNIGHTS_FOR_LARGEST_ARMY, MIN_ROADS_FOR_LONGEST_ROAD } from "@/shared/constants";
+import { getWeights, type PersonalityWeights } from "../personality";
 
 export type BotStrategy = "expansion" | "cities" | "development";
 
@@ -13,6 +15,12 @@ export interface PlayerThreat {
   devCardCount: number;
   roadLength: number;
   knightsPlayed: number;
+}
+
+export interface BuildGoal {
+  type: "city" | "settlement" | "road" | "developmentCard";
+  missingResources: Partial<Record<Resource, number>>;
+  estimatedTurns: number;
 }
 
 export interface BotStrategicContext {
@@ -36,6 +44,20 @@ export interface BotStrategicContext {
   vpToWin: number;
   /** Resources the bot doesn't produce at all */
   missingResources: Resource[];
+  /** Bot personality */
+  personality: BotPersonality;
+  /** Personality weights */
+  weights: PersonalityWeights;
+  /** Current primary build target */
+  buildGoal: BuildGoal | null;
+  /** Whether bot is in endgame mode */
+  isEndgame: boolean;
+  /** Bot's total VP (visible + hidden) */
+  ownVP: number;
+  /** Turn order position (0-based) */
+  turnOrderPosition: number;
+  /** Total player count */
+  playerCount: number;
 }
 
 /**
@@ -45,6 +67,8 @@ export interface BotStrategicContext {
 export function computeStrategicContext(state: GameState, playerIndex: number): BotStrategicContext {
   const player = state.players[playerIndex];
   const vpToWin = state.config?.vpToWin ?? 10;
+  const personality: BotPersonality = state.config?.players[playerIndex]?.personality ?? "balanced";
+  const weights = getWeights(personality);
 
   // --- Production rates ---
   const productionRates: Record<Resource, number> = { brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0 };
@@ -75,7 +99,6 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
 
   let distanceToLongestRoad: number;
   if (longestRoadHolder === playerIndex) {
-    // We have it — distance is 0 but track how far ahead we are
     distanceToLongestRoad = 0;
   } else if (longestRoadHolder !== null) {
     distanceToLongestRoad = longestRoadLength - ownRoadLength + 1;
@@ -152,6 +175,15 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
   // --- Missing resources ---
   const missingResources = ALL_RESOURCES.filter((r) => productionRates[r] === 0);
 
+  // --- Own VP (visible + hidden) ---
+  const ownVP = player.victoryPoints + player.hiddenVictoryPoints;
+
+  // --- Endgame detection ---
+  const isEndgame = ownVP >= vpToWin * weights.endgameThreshold;
+
+  // --- Build goal ---
+  const buildGoal = computeBuildGoal(state, playerIndex, productionRates, weights);
+
   return {
     productionRates,
     ownRoadLength,
@@ -163,5 +195,75 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
     gameProgress,
     vpToWin,
     missingResources,
+    personality,
+    weights,
+    buildGoal,
+    isEndgame,
+    ownVP,
+    turnOrderPosition: playerIndex,
+    playerCount: state.players.length,
   };
+}
+
+/**
+ * Compute the best build goal for the bot.
+ * Considers what's closest to completion, weighted by personality.
+ */
+function computeBuildGoal(
+  state: GameState,
+  playerIndex: number,
+  productionRates: Record<Resource, number>,
+  weights: PersonalityWeights,
+): BuildGoal | null {
+  const player = state.players[playerIndex];
+
+  const candidates: Array<BuildGoal & { score: number }> = [];
+
+  const buildTypes: Array<{ type: BuildGoal["type"]; costKey: string; weight: number; canBuild: boolean }> = [
+    { type: "city", costKey: "city", weight: weights.cityScore, canBuild: player.settlements.length > 0 && player.cities.length < 4 },
+    { type: "settlement", costKey: "settlement", weight: weights.settlementScore, canBuild: player.settlements.length + player.cities.length < 5 },
+    { type: "road", costKey: "road", weight: weights.roadScore, canBuild: player.roads.length < 15 },
+    { type: "developmentCard", costKey: "developmentCard", weight: weights.devCardScore, canBuild: state.developmentCardDeck.length > 0 },
+  ];
+
+  for (const bt of buildTypes) {
+    if (!bt.canBuild) continue;
+    const cost = BUILDING_COSTS[bt.costKey as keyof typeof BUILDING_COSTS];
+    if (!cost) continue;
+
+    const missing: Partial<Record<Resource, number>> = {};
+    let totalMissing = 0;
+
+    for (const [res, amount] of Object.entries(cost)) {
+      const need = (amount || 0) - player.resources[res as Resource];
+      if (need > 0) {
+        missing[res as Resource] = need;
+        totalMissing += need;
+      }
+    }
+
+    // Estimate turns to acquire missing resources from production
+    let estimatedTurns = 0;
+    if (totalMissing > 0) {
+      for (const [res, need] of Object.entries(missing)) {
+        const rate = productionRates[res as Resource];
+        if (rate > 0) {
+          estimatedTurns = Math.max(estimatedTurns, (need as number) / rate);
+        } else {
+          estimatedTurns = Math.max(estimatedTurns, 20); // high penalty for unproduced resources
+        }
+      }
+    }
+
+    // Score: lower estimated turns + higher weight = better
+    const score = bt.weight * (1 / (1 + estimatedTurns));
+
+    candidates.push({ type: bt.type, missingResources: missing, estimatedTurns, score });
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  return { type: best.type, missingResources: best.missingResources, estimatedTurns: best.estimatedTurns };
 }

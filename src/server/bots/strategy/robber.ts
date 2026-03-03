@@ -10,11 +10,15 @@ import type { BotStrategicContext } from "./context";
 
 /**
  * Pick the best hex to place the robber.
- * Enhanced: uses threat scores and strategy-aware blocking.
+ * Uses personality weights for aggression and self-protection.
+ * Endgame: always targets the leader, ignores self-damage.
  */
 export function pickRobberHex(state: GameState, playerIndex: number, context?: BotStrategicContext): HexKey {
   let bestHex: HexKey | null = null;
   let bestScore = -Infinity;
+
+  const robberAggression = context?.weights.robberAggression ?? 1.0;
+  const robberSelfProtect = context?.weights.robberSelfProtect ?? 1.0;
 
   // Build a threat lookup for fast access
   const threatByPlayer: Record<number, number> = {};
@@ -23,6 +27,10 @@ export function pickRobberHex(state: GameState, playerIndex: number, context?: B
       threatByPlayer[t.playerIndex] = t.threatScore;
     }
   }
+
+  // In endgame, find the leader to target specifically
+  const leader = context?.isEndgame && context.playerThreats.length > 0
+    ? context.playerThreats[0] : null;
 
   for (const [hk, hex] of Object.entries(state.board.hexes)) {
     if (hk === state.board.robberHex) continue;
@@ -46,9 +54,22 @@ export function pickRobberHex(state: GameState, playerIndex: number, context?: B
         const buildingMult = building.type === "city" ? 2 : 1;
 
         if (context) {
-          // Use threat score instead of raw VP
           const threat = threatByPlayer[building.playerIndex] ?? 0;
-          score += threat * dots * buildingMult * 0.5;
+          score += threat * dots * buildingMult * 0.5 * robberAggression;
+
+          // Endgame: extra bonus for targeting the leader
+          if (leader && building.playerIndex === leader.playerIndex) {
+            score += dots * buildingMult * 2;
+          }
+
+          // Opponent modeling: prefer hexes producing resources the opponent has lots of
+          const resource = TERRAIN_RESOURCE[hex.terrain];
+          if (resource) {
+            const opponent = state.players[building.playerIndex];
+            if (opponent.resources[resource] >= 3) {
+              score += opponent.resources[resource] * 0.5;
+            }
+          }
         } else {
           const opponent = state.players[building.playerIndex];
           score += opponent.victoryPoints * 2;
@@ -60,7 +81,15 @@ export function pickRobberHex(state: GameState, playerIndex: number, context?: B
     }
 
     if (!affectsOpponent) continue;
-    if (affectsSelf) score -= 15;
+
+    if (affectsSelf) {
+      // Endgame: ignore self-damage
+      if (context?.isEndgame) {
+        score -= 3; // minimal penalty
+      } else {
+        score -= 15 * robberSelfProtect;
+      }
+    }
 
     if (!context) score += dots;
 
@@ -85,7 +114,7 @@ export function pickRobberHex(state: GameState, playerIndex: number, context?: B
 
 /**
  * Pick which player to steal from at the robber hex.
- * Enhanced: uses threat scores.
+ * Aggressive/endgame personalities always steal from the leader.
  */
 export function pickStealTarget(state: GameState, playerIndex: number, context?: BotStrategicContext): number | null {
   const hexCoord = parseHexKey(state.board.robberHex);
@@ -107,6 +136,13 @@ export function pickStealTarget(state: GameState, playerIndex: number, context?:
     if (context) {
       const threat = context.playerThreats.find((t) => t.playerIndex === building.playerIndex);
       score = (threat?.threatScore ?? target.victoryPoints) * 3 + resourceCount;
+
+      // Endgame or aggressive: heavily prioritize the leader
+      if (context.isEndgame || context.weights.robberAggression >= 1.5) {
+        if (threat && threat === context.playerThreats[0]) {
+          score += 20;
+        }
+      }
     } else {
       score = target.victoryPoints * 3 + resourceCount;
     }
@@ -121,7 +157,8 @@ export function pickStealTarget(state: GameState, playerIndex: number, context?:
 
 /**
  * Pick which resources to discard when a 7 is rolled.
- * Enhanced: keeps resources aligned with current strategy.
+ * Uses build goal to protect goal resources.
+ * Hoarding personality keeps goal resources longer.
  */
 export function pickDiscardResources(
   state: GameState,
@@ -149,6 +186,16 @@ export function pickDiscardResources(
       resourceValue.wool = 4;
       resourceValue.ore = 5;
       resourceValue.grain = 3;
+    }
+
+    // Build goal protection: boost value of resources needed for goal
+    if (context.buildGoal) {
+      const hoarding = context.weights.resourceHoarding;
+      for (const [res, amount] of Object.entries(context.buildGoal.missingResources)) {
+        if ((amount || 0) > 0) {
+          resourceValue[res as Resource] += 3 * hoarding;
+        }
+      }
     }
   }
 

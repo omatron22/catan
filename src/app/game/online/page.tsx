@@ -76,6 +76,10 @@ export default function OnlineGamePage() {
   useEffect(() => {
     if (!socket) return;
 
+    const onJoined = ({ roomCode: code, playerIndex: idx, reconnectToken: token }: { roomCode: string; playerIndex: number; reconnectToken: string }) => {
+      mpStore.setRoomJoined(code, idx, token);
+    };
+
     const onState = ({ state }: { state: ClientGameState }) => {
       mpStore.setGameState(state);
     };
@@ -98,6 +102,7 @@ export default function OnlineGamePage() {
       playChat();
     };
 
+    socket.on("room:joined", onJoined);
     socket.on("game:state", onState);
     socket.on("game:events", onEvents);
     socket.on("game:error", onError);
@@ -105,6 +110,7 @@ export default function OnlineGamePage() {
     socket.on("chat:message", onChat);
 
     return () => {
+      socket.off("room:joined", onJoined);
       socket.off("game:state", onState);
       socket.off("game:events", onEvents);
       socket.off("game:error", onError);

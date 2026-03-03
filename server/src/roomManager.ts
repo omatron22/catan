@@ -204,7 +204,8 @@ function handleLeave(io: TypedServer, socket: TypedSocket) {
   const room = getRoomForSocket(socket.id);
   if (!room) return;
 
-  removePlayerFromRoom(io, room, socket.id);
+  const slot = room.players.find((p) => p.socketId === socket.id);
+  if (slot) removePlayerBySlot(io, room, slot);
   socket.leave(room.code);
   socketToRoom.delete(socket.id);
 }
@@ -216,30 +217,30 @@ function handleDisconnect(io: TypedServer, socket: TypedSocket) {
   const slot = room.players.find((p) => p.socketId === socket.id);
   if (!slot) return;
 
-  if (room.gameState) {
-    // Game in progress — keep slot, start grace period
-    slot.socketId = null;
-    slot.disconnectedAt = Date.now();
-    socketToRoom.delete(socket.id);
-    io.to(room.code).emit("room:player-left", { playerIndex: slot.index });
+  // Keep the slot, start grace period (works for both lobby and in-game)
+  slot.socketId = null;
+  slot.disconnectedAt = Date.now();
+  socketToRoom.delete(socket.id);
 
-    // 5-minute grace period, then replace with bot
-    setTimeout(() => {
-      if (slot.disconnectedAt !== null) {
+  const gracePeriod = room.gameState ? 5 * 60 * 1000 : 30 * 1000; // 5 min in-game, 30s in lobby
+
+  setTimeout(() => {
+    if (slot.disconnectedAt !== null) {
+      if (room.gameState) {
+        // In-game: replace with bot
         slot.isBot = true;
         slot.reconnectToken = null;
         broadcastLobbyState(io, room);
+      } else {
+        // In lobby: remove entirely
+        removePlayerBySlot(io, room, slot);
       }
-    }, 5 * 60 * 1000);
-  } else {
-    // In lobby — remove entirely
-    removePlayerFromRoom(io, room, socket.id);
-    socketToRoom.delete(socket.id);
-  }
+    }
+  }, gracePeriod);
 }
 
-function removePlayerFromRoom(io: TypedServer, room: Room, socketId: string) {
-  const idx = room.players.findIndex((p) => p.socketId === socketId);
+function removePlayerBySlot(io: TypedServer, room: Room, slot: PlayerSlot) {
+  const idx = room.players.indexOf(slot);
   if (idx === -1) return;
 
   room.players.splice(idx, 1);
@@ -247,7 +248,6 @@ function removePlayerFromRoom(io: TypedServer, room: Room, socketId: string) {
   room.players.forEach((p, i) => (p.index = i));
 
   if (room.players.length === 0) {
-    // Clean up empty room
     room.botTimers.forEach(clearTimeout);
     if (room.turnTimer) clearTimeout(room.turnTimer);
     rooms.delete(room.code);
@@ -255,7 +255,7 @@ function removePlayerFromRoom(io: TypedServer, room: Room, socketId: string) {
   }
 
   // If host left, assign new host
-  if (room.hostSocketId === socketId) {
+  if (slot.socketId && room.hostSocketId === slot.socketId) {
     const newHost = room.players.find((p) => !p.isBot && p.socketId);
     if (newHost) room.hostSocketId = newHost.socketId!;
   }

@@ -386,8 +386,8 @@ export default function Home() {
       </button>
 
       {/* Fun facts ticker across the top */}
-      <div className="relative z-10 w-full bg-[#1a1a2e]/70 border-b-2 border-[#3a3a5e] py-2 overflow-hidden">
-        <div className="lobby-ticker whitespace-nowrap font-pixel text-[8px] text-amber-300/80">
+      <div className="relative z-10 w-full py-2 overflow-hidden">
+        <div className="lobby-ticker whitespace-nowrap font-pixel text-[8px] text-amber-300/70">
           <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
           <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
           <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
@@ -406,17 +406,17 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Main 3-column layout — flush left and right */}
-      <div className="relative z-10 flex flex-1 min-h-0">
-        {/* ===== LEFT — Players (flush to left wall) ===== */}
-        <div className="w-60 shrink-0 flex flex-col bg-[#f0e6d0] border-r-4 border-black">
-          <div className="px-4 pt-4 pb-2">
+      {/* Main 3-column layout */}
+      <div className="relative z-10 flex flex-1 min-h-0 items-start px-0">
+        {/* ===== LEFT — Players ===== */}
+        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 mt-4">
+          <div className="px-4 pt-3 pb-2">
             <h2 className="font-pixel text-[9px] text-gray-700">
               PLAYERS ({players.length}/{isExpansion ? 6 : 4})
             </h2>
           </div>
 
-          <div className="flex-1 px-4 space-y-2 overflow-y-auto">
+          <div className="px-4 space-y-2 overflow-y-auto max-h-[50vh]">
             {players.map((player, idx) => (
               <div key={idx} className="relative">
                 <div className="flex items-center gap-2 bg-[#e8d8b8] px-2 py-1.5 border-2 border-black">
@@ -544,7 +544,7 @@ export default function Home() {
           </div>
 
           {/* Add bot + expansion badge */}
-          <div className="px-4 pb-4 pt-2">
+          <div className="px-4 pb-3 pt-2">
             {players.length < 6 && (
               <button
                 onClick={addBot}
@@ -672,14 +672,14 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ===== RIGHT — Chat (flush to right wall) ===== */}
-        <div className="w-60 shrink-0 flex flex-col bg-[#f0e6d0] border-l-4 border-black">
-          <div className="px-4 pt-4 pb-2">
+        {/* ===== RIGHT — Chat ===== */}
+        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 mt-4 flex flex-col">
+          <div className="px-4 pt-3 pb-2">
             <h2 className="font-pixel text-[9px] text-gray-700 text-center">CHAT</h2>
           </div>
 
           {/* Messages area */}
-          <div className="flex-1 mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll">
+          <div className="mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll min-h-[120px] max-h-[40vh]">
             {chatMessages.length === 0 ? (
               <p className="font-pixel text-[7px] text-gray-400 text-center mt-4">No messages yet...</p>
             ) : (
@@ -695,7 +695,7 @@ export default function Home() {
           </div>
 
           {/* Input */}
-          <div className="flex gap-1 px-4 py-4">
+          <div className="flex gap-1 px-4 py-3">
             <input
               type="text"
               value={chatInput}

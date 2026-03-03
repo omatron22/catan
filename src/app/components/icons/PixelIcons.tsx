@@ -234,3 +234,95 @@ export function RoadPixel({ size = 24, color = "#666" }: PxProps) {
 export function EndTurnPixel({ size = 24, color = "white" }: PxProps) {
   return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(END_TURN_PATTERN, color, size)}</svg>;
 }
+
+// ── DEV CARD ICONS ──
+
+const HELMET_PATTERN = `
+..####..
+.######.
+.##..##.
+########
+.######.
+..####..
+..#..#..
+........
+`;
+
+const ROAD_BUILD_PATTERN = `
+........
+.##.....
+..##....
+...##...
+....##..
+.....##.
+.##.....
+..##....
+`;
+
+const CORNUCOPIA_PATTERN = `
+......#.
+.....##.
+....###.
+...####.
+..#####.
+.######.
+########
+.######.
+`;
+
+const MONOPOLY_PATTERN = `
+..####..
+.#....#.
+.#.##.#.
+.#.##.#.
+.#....#.
+..####..
+...##...
+...##...
+`;
+
+const CHECK_PATTERN = `
+........
+.......#
+......#.
+.#...#..
+..#.#...
+...#....
+........
+........
+`;
+
+const XMARK_PATTERN = `
+........
+.#....#.
+..#..#..
+...##...
+...##...
+..#..#..
+.#....#.
+........
+`;
+
+export function HelmetPixel({ size = 24, color = "#6b21a8" }: PxProps) {
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(HELMET_PATTERN, color, size)}</svg>;
+}
+
+export function RoadBuildPixel({ size = 24, color = "#6b21a8" }: PxProps) {
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(ROAD_BUILD_PATTERN, color, size)}</svg>;
+}
+
+export function CornucopiaPixel({ size = 24, color = "#6b21a8" }: PxProps) {
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(CORNUCOPIA_PATTERN, color, size)}</svg>;
+}
+
+export function MonopolyPixel({ size = 24, color = "#6b21a8" }: PxProps) {
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(MONOPOLY_PATTERN, color, size)}</svg>;
+}
+
+export function CheckPixel({ size = 24, color = "#22c55e" }: PxProps) {
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(CHECK_PATTERN, color, size)}</svg>;
+}
+
+export function XMarkPixel({ size = 24, color = "#ef4444" }: PxProps) {
+  return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(XMARK_PATTERN, color, size)}</svg>;
+}

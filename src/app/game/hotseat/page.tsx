@@ -5,14 +5,16 @@ import { useRouter } from "next/navigation";
 import { useGameStore } from "@/app/stores/gameStore";
 import GameView from "@/app/components/game/GameView";
 import type { GameViewHandle } from "@/app/components/game/GameView";
-import { VPIcon } from "@/app/components/icons/GameIcons";
-import { RESOURCE_LABELS } from "@/app/components/game/helpers";
+import VictoryOverlay from "@/app/components/ui/VictoryOverlay";
+import { CheckPixel, XMarkPixel } from "@/app/components/icons/PixelIcons";
+import { MiniCard, RESOURCE_LABELS } from "@/app/components/game/helpers";
 import {
   playDiceRoll, playBuild, playTrade, playTurnNotification,
   playRobber, playSteal, playEndTurn, playDevCard, playError,
-  playChat, playSetup, playWin, playCollect, playClick,
+  playChat, playSetup, playWin, playCollect, playClick, playAchievement,
 } from "@/app/utils/sounds";
-import type { GameAction } from "@/shared/types/actions";
+import type { Announcement } from "@/app/components/ui/AnnouncementOverlay";
+import type { GameAction, GameEvent } from "@/shared/types/actions";
 import type { GameState, GameLogEntry, Resource } from "@/shared/types/game";
 import type { HexKey } from "@/shared/types/coordinates";
 import { PLAYER_COLOR_HEX } from "@/shared/constants";
@@ -52,6 +54,7 @@ export default function GamePage() {
   const [flashingHexes, setFlashingHexes] = useState<Set<HexKey>>(new Set());
   const [pendingTradeUI, setPendingTradeUI] = useState<PendingTradeUI | null>(null);
   const [turnDeadline, setTurnDeadline] = useState<number | null>(null);
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const botTimerRef = useRef<NodeJS.Timeout | null>(null);
   const tradeTimersRef = useRef<NodeJS.Timeout[]>([]);
 
@@ -96,6 +99,24 @@ export default function GamePage() {
     botTimerRef.current = setTimeout(() => executeBotAction(state, botIndex), delay);
   }
 
+  function checkAchievementEvents(events: GameEvent[] | undefined, state: GameState) {
+    if (!events) return;
+    for (const event of events) {
+      if (event.type === "largest-army-changed" && event.playerIndex !== null) {
+        const p = state.players[event.playerIndex];
+        setAnnouncement({ playerName: p.name, playerColor: PLAYER_COLOR_HEX[p.color], type: "largest-army" });
+        playAchievement();
+        return;
+      }
+      if (event.type === "longest-road-changed" && event.playerIndex !== null) {
+        const p = state.players[event.playerIndex];
+        setAnnouncement({ playerName: p.name, playerColor: PLAYER_COLOR_HEX[p.color], type: "longest-road" });
+        playAchievement();
+        return;
+      }
+    }
+  }
+
   function playActionSound(actionType: string) {
     switch (actionType) {
       case "roll-dice": playDiceRoll(); break;
@@ -118,6 +139,7 @@ export default function GamePage() {
     const result = applyAction(state, action);
     if (result.valid && result.newState) {
       playActionSound(action.type);
+      checkAchievementEvents(result.events, result.newState);
       // Flash hexes for bot dice rolls (same logic as human handleAction)
       if (action.type === "roll-dice" && result.newState.lastDiceRoll) {
         const total = result.newState.lastDiceRoll.die1 + result.newState.lastDiceRoll.die2;
@@ -287,8 +309,8 @@ export default function GamePage() {
     tradeTimersRef.current.forEach(clearTimeout);
     tradeTimersRef.current = [];
 
-    respondingBots.forEach((bi, i) => {
-      const delay = 1000 + i * 1200 + Math.random() * 800;
+    respondingBots.forEach((bi) => {
+      const delay = 0;
       const timer = setTimeout(() => {
         const decision = decideBotTradeResponse(tradeState, bi);
         decisions.push({ botIndex: bi, decision });
@@ -375,6 +397,10 @@ export default function GamePage() {
     clearError();
     const result = dispatch(action);
 
+    if (result.valid && result.newState) {
+      checkAchievementEvents(result.events, result.newState);
+    }
+
     if (action.type === "offer-trade" && result.valid && result.newState) {
       playTrade();
       startTradeOrchestration(result.newState);
@@ -425,42 +451,6 @@ export default function GamePage() {
     );
   }
 
-  if (gameState.phase === "finished") {
-    const winner = gameState.players[gameState.winner!];
-    const isHumanWinner = gameState.winner === HUMAN_PLAYER_INDEX;
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#2a6ab5]">
-        <div className="text-center bg-[#f0e6d0] pixel-border p-10 max-w-md">
-          <div className="flex justify-center mb-4">
-            <VPIcon size={48} color={isHumanWinner ? "#d97706" : "#ef4444"} />
-          </div>
-          <h2 className={`font-pixel text-[16px] mb-3 ${isHumanWinner ? "text-amber-600" : "text-red-500"}`}>
-            {isHumanWinner ? "YOU WIN!" : `${winner.name.toUpperCase()} WINS!`}
-          </h2>
-          <p className="text-gray-600 mb-6 text-sm">
-            {winner.victoryPoints + winner.hiddenVictoryPoints} victory points
-          </p>
-          <button
-            onClick={() => {
-              const fullStored = sessionStorage.getItem("catan-game-config");
-              const legacyStored = sessionStorage.getItem("catan-config");
-              if (fullStored) {
-                const fc = JSON.parse(fullStored);
-                const lc = { playerName: fc.players[0]?.name ?? "You", botNames: fc.players.slice(1).map((p: { name: string }) => p.name) };
-                initGame(lc, fc);
-              } else if (legacyStored) {
-                initGame(JSON.parse(legacyStored));
-              }
-            }}
-            className="px-8 py-3 bg-amber-400 text-gray-900 font-pixel text-[10px] pixel-btn"
-          >
-            PLAY AGAIN
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Build playerColors and buildingStyles
   const playerColors: Record<number, string> = {};
   const boardBuildingStyles: Record<number, import("@/shared/types/config").BuildingStyle> = {};
@@ -477,9 +467,9 @@ export default function GamePage() {
 
   // Trade response overlay (hotseat-only)
   const tradeOverlayNode = pendingTradeUI && gameState.pendingTrade ? (
-    <div className="bg-[#1a1a2e]/95 border-2 border-amber-500/50 px-3 py-2 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
+    <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-3 py-2 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
       <div className="flex items-center gap-3">
-        <span className="text-[8px] text-amber-400">
+        <span className="font-pixel text-[8px] text-gray-700">
           {pendingTradeUI.resolved ? "CHOOSE:" : "WAITING..."}
         </span>
         <div className="flex gap-2">
@@ -491,64 +481,91 @@ export default function GamePage() {
             const counter = pendingTradeUI.counterOffers[idx];
 
             return (
-              <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-[#0d0d1a] border border-[#3a3a5e]">
-                <span className="text-[8px] font-bold" style={{ color }}>{p.name.toUpperCase()}</span>
+              <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-[#e8d8b8] border border-[#8b7355]">
+                <span className="font-pixel text-[8px] font-bold" style={{ color }}>{p.name.toUpperCase()}</span>
                 {status === "pending" && <span className="text-[7px] text-gray-400 animate-pulse">...</span>}
-                {status === "rejected" && !counter && <span className="text-[7px] text-red-400">NO</span>}
+                {status === "rejected" && !counter && <XMarkPixel size={14} color="#dc2626" />}
                 {status === "rejected" && counter && pendingTradeUI.resolved && (
                   <div className="flex items-center gap-1">
-                    <span className="text-[6px] text-yellow-400">COUNTER:</span>
+                    <span className="font-pixel text-[6px] text-amber-700">COUNTER:</span>
                     <div className="flex gap-0.5">
-                      {Object.entries(counter.offering).map(([r, amt]) => (
-                        <span key={r} className="text-[6px] text-green-300">{amt}{RESOURCE_LABELS[r as Resource]}</span>
-                      ))}
+                      {Object.entries(counter.offering).flatMap(([r, amt]) =>
+                        Array.from({ length: amt! }, (_, i) => (
+                          <MiniCard key={`co-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="green" />
+                        ))
+                      )}
                     </div>
-                    <span className="text-[6px] text-gray-500">for</span>
+                    <span className="text-[7px] text-gray-500">for</span>
                     <div className="flex gap-0.5">
-                      {Object.entries(counter.requesting).map(([r, amt]) => (
-                        <span key={r} className="text-[6px] text-red-300">{amt}{RESOURCE_LABELS[r as Resource]}</span>
-                      ))}
+                      {Object.entries(counter.requesting).flatMap(([r, amt]) =>
+                        Array.from({ length: amt! }, (_, i) => (
+                          <MiniCard key={`cr-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="red" />
+                        ))
+                      )}
                     </div>
-                    <button onClick={() => acceptCounterOffer(idx)} className="px-1.5 py-0.5 bg-amber-500 text-black text-[6px] border border-black hover:bg-amber-400">ACCEPT</button>
+                    <button onClick={() => acceptCounterOffer(idx)} className="px-1.5 py-0.5 bg-amber-500 text-black font-pixel text-[6px] border border-black hover:bg-amber-400">ACCEPT</button>
                   </div>
                 )}
                 {isAcceptor && (
-                  <div className="flex gap-1">
-                    <button onClick={() => acceptTradeWith(idx)} className="px-2 py-0.5 bg-green-600 text-white text-[7px] border border-black hover:bg-green-500">TRADE</button>
-                    <button onClick={() => declineAcceptor(idx)} className="px-2 py-0.5 bg-red-700 text-white text-[7px] border border-black hover:bg-red-600">DECLINE</button>
+                  <div className="flex gap-1 items-center">
+                    <CheckPixel size={14} color="#16a34a" />
+                    <button onClick={() => acceptTradeWith(idx)} className="px-2 py-0.5 bg-green-600 text-white font-pixel text-[7px] border border-black hover:bg-green-500">TRADE</button>
+                    <button onClick={() => declineAcceptor(idx)} className="px-2 py-0.5 bg-red-700 text-white font-pixel text-[7px] border border-black hover:bg-red-600">DECLINE</button>
                   </div>
                 )}
-                {status === "accepted" && !pendingTradeUI.resolved && <span className="text-[7px] text-green-400">YES</span>}
+                {status === "accepted" && !pendingTradeUI.resolved && <CheckPixel size={14} color="#16a34a" />}
               </div>
             );
           })}
         </div>
         {pendingTradeUI.resolved && (
-          <button onClick={declineAllTrades} className="px-2 py-1 bg-red-800 text-white text-[7px] pixel-btn hover:bg-red-700">DECLINE ALL</button>
+          <button onClick={declineAllTrades} className="px-2 py-1 bg-red-700 text-white font-pixel text-[7px] pixel-btn hover:bg-red-600">DECLINE ALL</button>
         )}
       </div>
     </div>
   ) : null;
 
   return (
-    <GameView
-      ref={gameViewRef}
-      gameState={gameState}
-      myPlayerIndex={HUMAN_PLAYER_INDEX}
-      onAction={handleAction}
-      playerColors={playerColors}
-      buildingStyles={boardBuildingStyles}
-      chatLog={gameState.log}
-      onSendChat={handleSendChat}
-      onMainMenu={() => router.push("/")}
-      onLobby={() => { sessionStorage.setItem("catan-auto-lobby", "true"); router.push("/"); }}
-      flashingHexes={flashingHexes}
-      flashSeven={flashSeven}
-      turnDeadline={turnDeadline}
-      error={error}
-      botThinking={botThinking}
-      tradeOverlay={tradeOverlayNode}
-      showTradeOverlay={pendingTradeUI !== null}
-    />
+    <>
+      <GameView
+        ref={gameViewRef}
+        gameState={gameState}
+        myPlayerIndex={HUMAN_PLAYER_INDEX}
+        onAction={handleAction}
+        playerColors={playerColors}
+        buildingStyles={boardBuildingStyles}
+        chatLog={gameState.log}
+        onSendChat={handleSendChat}
+        onMainMenu={() => router.push("/")}
+        onLobby={() => { sessionStorage.setItem("catan-auto-lobby", "true"); router.push("/"); }}
+        flashingHexes={flashingHexes}
+        flashSeven={flashSeven}
+        turnDeadline={turnDeadline}
+        error={error}
+        botThinking={botThinking}
+        tradeOverlay={tradeOverlayNode}
+        showTradeOverlay={pendingTradeUI !== null}
+        announcement={announcement}
+        onDismissAnnouncement={() => setAnnouncement(null)}
+      />
+      {gameState.phase === "finished" && (
+        <VictoryOverlay
+          gameState={gameState}
+          localPlayerIndex={HUMAN_PLAYER_INDEX}
+          onPlayAgain={() => {
+            const fullStored = sessionStorage.getItem("catan-game-config");
+            const legacyStored = sessionStorage.getItem("catan-config");
+            if (fullStored) {
+              const fc = JSON.parse(fullStored);
+              const lc = { playerName: fc.players[0]?.name ?? "You", botNames: fc.players.slice(1).map((p: { name: string }) => p.name) };
+              initGame(lc, fc);
+            } else if (legacyStored) {
+              initGame(JSON.parse(legacyStored));
+            }
+          }}
+          onMainMenu={() => router.push("/")}
+        />
+      )}
+    </>
   );
 }

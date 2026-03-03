@@ -6,12 +6,13 @@ import { useSocket } from "@/app/hooks/useSocket";
 import { useMultiplayerStore } from "@/app/stores/multiplayerStore";
 import GameView from "@/app/components/game/GameView";
 import { StylePreview, RuleCard } from "@/app/components/ui/LobbyComponents";
-import { VPIcon } from "@/app/components/icons/GameIcons";
+import VictoryOverlay from "@/app/components/ui/VictoryOverlay";
 import {
   playDiceRoll, playBuild, playTrade, playTurnNotification,
   playRobber, playSteal, playEndTurn, playDevCard, playError,
-  playChat, playWin, playCollect,
+  playChat, playWin, playCollect, playAchievement,
 } from "@/app/utils/sounds";
+import type { Announcement } from "@/app/components/ui/AnnouncementOverlay";
 import type { GameAction } from "@/shared/types/actions";
 import type { Resource, GameLogEntry } from "@/shared/types/game";
 import { PLAYER_COLORS } from "@/shared/types/game";
@@ -43,6 +44,7 @@ export default function OnlineGamePage() {
   const [flashSeven, setFlashSeven] = useState(false);
   const [flashingHexes, setFlashingHexes] = useState<Set<HexKey>>(new Set());
   const [localError, setLocalError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
 
   // Lobby UI state
   const [colorPickerOpen, setColorPickerOpen] = useState<number | null>(null);
@@ -143,7 +145,7 @@ export default function OnlineGamePage() {
 
   // --- Event-based sounds ---
   useEffect(() => {
-    if (!lastEvents || lastEvents.length === 0) return;
+    if (!lastEvents || lastEvents.length === 0 || !gameState) return;
     for (const event of lastEvents) {
       switch (event.type) {
         case "dice-rolled": playDiceRoll(); break;
@@ -155,9 +157,21 @@ export default function OnlineGamePage() {
         case "development-card-bought": case "knight-played": case "road-building-played":
         case "year-of-plenty-played": case "monopoly-played": playDevCard(); break;
         case "resources-distributed": playCollect(); break;
+        case "largest-army-changed": case "longest-road-changed": {
+          if (event.playerIndex !== null) {
+            const p = gameState.players[event.playerIndex];
+            setAnnouncement({
+              playerName: p.name,
+              playerColor: PLAYER_COLOR_HEX[p.color],
+              type: event.type === "largest-army-changed" ? "largest-army" : "longest-road",
+            });
+            playAchievement();
+          }
+          break;
+        }
       }
     }
-  }, [lastEvents]);
+  }, [lastEvents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Action dispatch ---
   const handleAction = useCallback((action: GameAction) => {
@@ -422,22 +436,6 @@ export default function OnlineGamePage() {
     );
   }
 
-  // Game finished
-  if (gameState.phase === "finished") {
-    const winner = gameState.players[gameState.winner!];
-    const isMyWin = gameState.winner === myPlayerIndex;
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#2a6ab5]">
-        <div className="text-center bg-[#f0e6d0] pixel-border p-10 max-w-md">
-          <div className="flex justify-center mb-4"><VPIcon size={48} color={isMyWin ? "#d97706" : "#ef4444"} /></div>
-          <h2 className={`font-pixel text-[16px] mb-3 ${isMyWin ? "text-amber-600" : "text-red-500"}`}>{isMyWin ? "YOU WIN!" : `${winner.name.toUpperCase()} WINS!`}</h2>
-          <p className="text-gray-600 mb-6 text-sm">{winner.victoryPoints + winner.hiddenVictoryPoints} victory points</p>
-          <button onClick={() => { mpStore.reset(); router.push("/"); }} className="px-8 py-3 bg-amber-400 text-gray-900 font-pixel text-[10px] pixel-btn">BACK TO MENU</button>
-        </div>
-      </div>
-    );
-  }
-
   // Build playerColors
   const playerColors: Record<number, string> = {};
   for (const p of gameState.players) playerColors[p.index] = PLAYER_COLOR_HEX[p.color] ?? "#fff";
@@ -449,21 +447,32 @@ export default function OnlineGamePage() {
   ].sort((a, b) => a.timestamp - b.timestamp);
 
   return (
-    <GameView
-      gameState={gameState}
-      myPlayerIndex={myPlayerIndex}
-      onAction={handleAction}
-      playerColors={playerColors}
-      buildingStyles={{}}
-      chatLog={chatLog}
-      onSendChat={handleSendChat}
-      onMainMenu={handleLeaveGame}
-      onLobby={handleLeaveGame}
-      flashingHexes={flashingHexes}
-      flashSeven={flashSeven}
-      turnDeadline={gameState.turnDeadline}
-      error={localError || error}
-      connected={connected}
-    />
+    <>
+      <GameView
+        gameState={gameState}
+        myPlayerIndex={myPlayerIndex}
+        onAction={handleAction}
+        playerColors={playerColors}
+        buildingStyles={{}}
+        chatLog={chatLog}
+        onSendChat={handleSendChat}
+        onMainMenu={handleLeaveGame}
+        onLobby={handleLeaveGame}
+        flashingHexes={flashingHexes}
+        flashSeven={flashSeven}
+        turnDeadline={gameState.turnDeadline}
+        error={localError || error}
+        connected={connected}
+        announcement={announcement}
+        onDismissAnnouncement={() => setAnnouncement(null)}
+      />
+      {gameState.phase === "finished" && (
+        <VictoryOverlay
+          gameState={gameState}
+          localPlayerIndex={myPlayerIndex}
+          onMainMenu={() => { mpStore.reset(); router.push("/"); }}
+        />
+      )}
+    </>
   );
 }

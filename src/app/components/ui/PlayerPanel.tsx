@@ -3,7 +3,7 @@
 import type { PlayerState } from "@/shared/types/game";
 import type { ClientPlayerState } from "@/shared/types/messages";
 import { PLAYER_COLOR_HEX } from "@/shared/constants";
-import { SwordPixel, RoadPixel, CrownPixel } from "@/app/components/icons/PixelIcons";
+import { HelmetPixel, RoadPixel, CrownPixel } from "@/app/components/icons/PixelIcons";
 
 interface Props {
   player: PlayerState | ClientPlayerState;
@@ -67,7 +67,7 @@ export default function PlayerPanel({ player, isCurrentTurn, isLocalPlayer }: Pr
 
       {/* Knights played */}
       <div className="flex items-center gap-0.5" title={`${player.knightsPlayed} knights played`}>
-        <div className="pixel-icon"><SwordPixel size={14} color="#6b21a8" /></div>
+        <div className="pixel-icon"><HelmetPixel size={14} color="#6b21a8" /></div>
         <span className="text-[8px] text-gray-700 font-bold">{player.knightsPlayed}</span>
       </div>
 

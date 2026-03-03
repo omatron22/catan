@@ -9,8 +9,10 @@ import ActionBar from "@/app/components/ui/ActionBar";
 import TurnTimerDisplay from "@/app/components/ui/TurnTimerDisplay";
 import ResourceSelector from "@/app/components/ui/ResourceSelector";
 import ChatBox from "@/app/components/ui/ChatBox";
+import AnnouncementOverlay from "@/app/components/ui/AnnouncementOverlay";
+import type { Announcement } from "@/app/components/ui/AnnouncementOverlay";
 import { ResourceCard, ResourceIcon } from "@/app/components/icons/ResourceIcons";
-import { SwordPixel, ScrollPixel, CrownPixel } from "@/app/components/icons/PixelIcons";
+import { HelmetPixel, ScrollPixel, CrownPixel, RoadBuildPixel, CornucopiaPixel, MonopolyPixel } from "@/app/components/icons/PixelIcons";
 import { useHighlights } from "@/app/hooks/useHighlights";
 import { useTradeUI } from "@/app/hooks/useTradeUI";
 import { MiniCard, RESOURCE_LABELS, formatDevCard, formatDevCardShort, getStealTargets } from "./helpers";
@@ -63,6 +65,10 @@ export interface GameViewProps {
 
   // Hotseat: validate requesting against opponent resources
   onAddToRequesting?: (resource: Resource) => void;
+
+  // Achievement announcements
+  announcement?: Announcement | null;
+  onDismissAnnouncement?: () => void;
 }
 
 function canAfford(resources: Record<Resource, number>, cost: Partial<Record<Resource, number>>): boolean {
@@ -92,6 +98,8 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     tradeOverlay,
     showTradeOverlay,
     onAddToRequesting,
+    announcement,
+    onDismissAnnouncement,
   } = props;
 
   // --- Settings panel ---
@@ -328,12 +336,16 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   const discardAmount = Math.floor(totalResources / 2);
   const currentDiscardCount = Object.values(discardSelection).reduce((s, n) => s + n, 0);
 
-  function handleDiscardClick(res: Resource) {
+  function handleDiscardAdd(res: Resource) {
     if (!needsDiscard) return;
     if (discardSelection[res] < myPlayer.resources[res] && currentDiscardCount < discardAmount) {
       setDiscardSelection({ ...discardSelection, [res]: discardSelection[res] + 1 });
-    } else if (discardSelection[res] > 0) {
-      // Deselect
+    }
+  }
+
+  function handleDiscardRemove(res: Resource) {
+    if (!needsDiscard) return;
+    if (discardSelection[res] > 0) {
       setDiscardSelection({ ...discardSelection, [res]: discardSelection[res] - 1 });
     }
   }
@@ -476,94 +488,94 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             {/* Left side: trade panels */}
             <div className="flex flex-col gap-2">
               {showTradeStrip && (
-                <div className="bg-black/95 border-2 border-[#3a3a5e] px-2 py-1.5 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
-                  <div className="flex items-center gap-2">
-                    {/* Offering section */}
-                    <div className="flex items-center gap-1">
-                      <span className="text-[7px] text-green-400">GIVE:</span>
-                      {trade.offering.length === 0 ? (
-                        <span className="text-[6px] text-gray-600">click cards</span>
-                      ) : (
-                        trade.offering.map((res, i) => (
-                          <MiniCard key={`o-${i}`} resource={res} onClick={() => trade.removeFromOffering(i)} glow="green" />
-                        ))
-                      )}
+                <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-2 py-1.5 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
+                  <div className="flex flex-col gap-1">
+                    {/* GET row */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[7px] text-red-700 font-bold w-7">GET:</span>
+                      <div className="flex gap-0.5">
+                        {ALL_RESOURCES.map((res) => (
+                          <button
+                            key={res}
+                            onClick={() => handleAddToRequesting(res)}
+                            className={`w-6 h-6 flex items-center justify-center border border-[#8b7355] hover:border-amber-600 transition-colors${trade.shakenResource === res ? " res-shake" : ""}`}
+                            style={{ backgroundColor: RESOURCE_COLORS[res] }}
+                            title={`Request ${RESOURCE_LABELS[res]}`}
+                          >
+                            <ResourceIcon resource={res} size={12} />
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-0.5 min-w-[60px]">
+                        {trade.requesting.length === 0 ? (
+                          <span className="text-[6px] text-gray-500">click +</span>
+                        ) : (
+                          trade.requesting.map((res, i) => (
+                            <MiniCard key={`r-${i}`} resource={res} onClick={() => trade.removeFromRequesting(i)} glow="red" />
+                          ))
+                        )}
+                      </div>
                     </div>
 
-                    {/* Swap icon */}
-                    <span className="text-[10px] text-amber-400">&#8644;</span>
+                    {/* GIVE row */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[7px] text-green-700 font-bold w-7">GIVE:</span>
+                      <div className="flex items-center gap-0.5 min-w-[60px]">
+                        {trade.offering.length === 0 ? (
+                          <span className="text-[6px] text-gray-500">click cards</span>
+                        ) : (
+                          trade.offering.map((res, i) => (
+                            <MiniCard key={`o-${i}`} resource={res} onClick={() => trade.removeFromOffering(i)} glow="green" />
+                          ))
+                        )}
+                      </div>
 
-                    {/* Requesting section */}
-                    <div className="flex items-center gap-1">
-                      <span className="text-[7px] text-red-400">GET:</span>
-                      {trade.requesting.length === 0 ? (
-                        <span className="text-[6px] text-gray-600">click +</span>
-                      ) : (
-                        trade.requesting.map((res, i) => (
-                          <MiniCard key={`r-${i}`} resource={res} onClick={() => trade.removeFromRequesting(i)} glow="red" />
-                        ))
-                      )}
-                    </div>
+                      {/* Action buttons */}
+                      <div className="flex gap-1 ml-auto">
+                        {/* Bank trade button */}
+                        {(() => {
+                          const bankValid = bankInfo &&
+                            trade.requesting.length > 0 &&
+                            trade.requesting.length === bankInfo.receivingCount &&
+                            !trade.requesting.some((r) => r === bankInfo.giving);
+                          return bankInfo ? (
+                            <button
+                              onClick={bankValid ? handleBankTradeSimple : undefined}
+                              disabled={!bankValid}
+                              className={`px-2 py-1 text-[7px] pixel-btn ${
+                                bankValid
+                                  ? "bg-amber-600 text-white"
+                                  : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
+                              }`}
+                              title={bankValid
+                                ? `Bank trade ${bankInfo.ratio}:1 — click to execute`
+                                : `Select ${bankInfo.receivingCount} resource(s) to receive (${bankInfo.ratio}:1)`}
+                            >
+                              BANK {bankInfo.ratio}:1
+                            </button>
+                          ) : null;
+                        })()}
 
-                    {/* Request resource buttons */}
-                    <div className="flex gap-0.5">
-                      {ALL_RESOURCES.map((res) => (
                         <button
-                          key={res}
-                          onClick={() => handleAddToRequesting(res)}
-                          className={`w-6 h-6 flex items-center justify-center border border-[#3a3a5e] hover:border-white transition-colors${trade.shakenResource === res ? " res-shake" : ""}`}
-                          style={{ backgroundColor: RESOURCE_COLORS[res] }}
-                          title={`Request ${RESOURCE_LABELS[res]}`}
-                        >
-                          <ResourceIcon resource={res} size={12} />
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Bank trade button: validates and executes immediately */}
-                    {(() => {
-                      const bankValid = bankInfo &&
-                        trade.requesting.length > 0 &&
-                        trade.requesting.length === bankInfo.receivingCount &&
-                        !trade.requesting.some((r) => r === bankInfo.giving);
-                      return bankInfo ? (
-                        <button
-                          onClick={bankValid ? handleBankTradeSimple : undefined}
-                          disabled={!bankValid}
+                          onClick={handlePlayerTrade}
+                          disabled={trade.offering.length === 0 || trade.requesting.length === 0}
                           className={`px-2 py-1 text-[7px] pixel-btn ${
-                            bankValid
-                              ? "bg-amber-600 text-white"
-                              : "bg-[#2a2a4e] text-gray-600 cursor-not-allowed"
+                            trade.offering.length > 0 && trade.requesting.length > 0
+                              ? "bg-green-600 text-white"
+                              : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
                           }`}
-                          title={bankValid
-                            ? `Bank trade ${bankInfo.ratio}:1 — click to execute`
-                            : `Select ${bankInfo.receivingCount} resource(s) to receive (${bankInfo.ratio}:1)`}
                         >
-                          BANK {bankInfo.ratio}:1
+                          OFFER
                         </button>
-                      ) : null;
-                    })()}
 
-                    {/* Offer to players */}
-                    <button
-                      onClick={handlePlayerTrade}
-                      disabled={trade.offering.length === 0 || trade.requesting.length === 0}
-                      className={`px-2 py-1 text-[7px] pixel-btn ${
-                        trade.offering.length > 0 && trade.requesting.length > 0
-                          ? "bg-green-600 text-white"
-                          : "bg-[#2a2a4e] text-gray-600 cursor-not-allowed"
-                      }`}
-                    >
-                      OFFER
-                    </button>
-
-                    {/* Close */}
-                    <button
-                      onClick={() => trade.closeTrade()}
-                      className="px-1.5 py-1 text-[7px] text-gray-400 pixel-btn bg-[#2a2a4e] hover:bg-[#3a3a5e]"
-                    >
-                      X
-                    </button>
+                        <button
+                          onClick={() => trade.closeTrade()}
+                          className="px-1.5 py-1 text-[7px] text-gray-600 pixel-btn bg-[#d4c4a8] hover:bg-[#c4b498]"
+                        >
+                          X
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -590,28 +602,54 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
         </div>
 
         {/* Bottom bar */}
-        <div className="h-20 bg-[#2a5a4a] border-t-4 border-black flex items-center px-2 gap-2">
-          {/* Resource cards */}
+        <div className={`${needsDiscard ? "py-1.5" : "h-20"} bg-[#2a5a4a] border-t-4 border-black flex ${needsDiscard ? "flex-col gap-1 px-2" : "items-center px-2 gap-2"}`}>
+          {/* Discard staging area (top row) */}
+          {needsDiscard && (
+            <div className="flex items-center gap-2 bg-red-900/40 border border-red-500/50 px-2 py-1 rounded-sm">
+              <span className="font-pixel text-[8px] text-red-400 shrink-0">
+                DISCARDING {currentDiscardCount}/{discardAmount}
+              </span>
+              <div className="flex items-center gap-0.5 flex-1 min-h-[36px]">
+                {currentDiscardCount === 0 ? (
+                  <span className="text-[6px] text-red-300/50">click cards below to select</span>
+                ) : (
+                  ALL_RESOURCES.flatMap((res) =>
+                    Array.from({ length: discardSelection[res] }, (_, i) => (
+                      <MiniCard key={`ds-${res}-${i}`} resource={res} onClick={() => handleDiscardRemove(res)} glow="red" />
+                    ))
+                  )
+                )}
+              </div>
+              <button
+                onClick={handleDiscardConfirm}
+                disabled={currentDiscardCount !== discardAmount}
+                className={`px-3 py-1.5 font-pixel text-[8px] shrink-0 ${
+                  currentDiscardCount === discardAmount
+                    ? "bg-red-600 text-white pixel-btn"
+                    : "bg-gray-600 text-gray-400 cursor-not-allowed border-2 border-black"
+                }`}
+              >
+                CONFIRM
+              </button>
+            </div>
+          )}
+
+          {/* Resource cards row */}
           <div className="flex items-end gap-0.5">
             {myResources
               .filter(([, count]) => count > 0)
               .map(([res, count]) => {
-                const discardCount = discardSelection[res];
+                const remaining = needsDiscard ? count - discardSelection[res] : count;
                 const notifs = resourceNotifs.filter((n) => n.resource === res);
+                if (needsDiscard && remaining <= 0) return null;
                 return (
                   <div
                     key={res}
                     className={`relative ${needsDiscard || canTradeOrBuild ? "cursor-pointer" : ""}`}
-                    onClick={needsDiscard ? () => handleDiscardClick(res) : (canTradeOrBuild ? () => trade.addToOffering(res) : undefined)}
+                    onClick={needsDiscard ? () => handleDiscardAdd(res) : (canTradeOrBuild ? () => trade.addToOffering(res) : undefined)}
                     title={needsDiscard ? `Click to discard ${RESOURCE_LABELS[res]}` : (canTradeOrBuild ? `Click to offer ${RESOURCE_LABELS[res]}` : undefined)}
                   >
-                    <ResourceCard resource={res} count={count} />
-                    {/* Discard overlay */}
-                    {needsDiscard && discardCount > 0 && (
-                      <div className="absolute inset-0 bg-red-600/40 border-2 border-red-500 flex items-center justify-center">
-                        <span className="font-pixel text-[10px] text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">-{discardCount}</span>
-                      </div>
-                    )}
+                    <ResourceCard resource={res} count={remaining} />
                     {/* Resource change floating badges */}
                     {notifs.map((n) => (
                       <span
@@ -651,9 +689,15 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                   }}
                 >
                   {card === "knight" ? (
-                    <SwordPixel size={14} color="white" />
+                    <HelmetPixel size={14} color="white" />
                   ) : card === "victoryPoint" ? (
                     <CrownPixel size={14} color="#fbbf24" />
+                  ) : card === "roadBuilding" ? (
+                    <RoadBuildPixel size={14} color="white" />
+                  ) : card === "yearOfPlenty" ? (
+                    <CornucopiaPixel size={14} color="white" />
+                  ) : card === "monopoly" ? (
+                    <MonopolyPixel size={14} color="white" />
                   ) : (
                     <ScrollPixel size={14} color="white" />
                   )}
@@ -675,9 +719,15 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                 title={`${formatDevCard(card)} (NEW - can't play until next turn)`}
               >
                 {card === "knight" ? (
-                  <SwordPixel size={14} color="#a78bfa" />
+                  <HelmetPixel size={14} color="#a78bfa" />
                 ) : card === "victoryPoint" ? (
                   <CrownPixel size={14} color="#fbbf24" />
+                ) : card === "roadBuilding" ? (
+                  <RoadBuildPixel size={14} color="#a78bfa" />
+                ) : card === "yearOfPlenty" ? (
+                  <CornucopiaPixel size={14} color="#a78bfa" />
+                ) : card === "monopoly" ? (
+                  <MonopolyPixel size={14} color="#a78bfa" />
                 ) : (
                   <ScrollPixel size={14} color="#a78bfa" />
                 )}
@@ -715,26 +765,9 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           {/* Status center */}
           <div className="flex-1 text-center">
             {needsDiscard ? (
-              /* Fix 3: Inline discard status */
-              <>
-                <div className="font-pixel text-[9px] text-red-400">
-                  DISCARD {currentDiscardCount}/{discardAmount}
-                </div>
-                <div className="font-pixel text-[6px] text-gray-400 mt-0.5">
-                  Click cards to select
-                </div>
-                <button
-                  onClick={handleDiscardConfirm}
-                  disabled={currentDiscardCount !== discardAmount}
-                  className={`mt-1 px-4 py-1 font-pixel text-[8px] ${
-                    currentDiscardCount === discardAmount
-                      ? "bg-red-600 text-white pixel-btn"
-                      : "bg-gray-600 text-gray-400 cursor-not-allowed border-2 border-black"
-                  }`}
-                >
-                  CONFIRM
-                </button>
-              </>
+              <div className="font-pixel text-[9px] text-red-400">
+                SELECT CARDS TO DISCARD
+              </div>
             ) : (
               <>
                 <div className={`font-pixel text-[9px] ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
@@ -813,6 +846,11 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           />
         </div>
       </div>
+
+      {/* Achievement announcement */}
+      {announcement && onDismissAnnouncement && (
+        <AnnouncementOverlay announcement={announcement} onDismiss={onDismissAnnouncement} />
+      )}
 
       {/* Dialogs (Fix 3: DiscardDialog removed, handled inline) */}
       {activeAction === "monopoly" && (

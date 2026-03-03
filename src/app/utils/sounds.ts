@@ -174,3 +174,14 @@ export function playClick() {
   const t = ctx.currentTime;
   playSquareNote(800, t, 0.025, 0.04);
 }
+
+/** Achievement unlocked — distinct rising fanfare */
+export function playAchievement() {
+  const ctx = getContext();
+  const t = ctx.currentTime;
+  playSquareNote(392, t, 0.1, 0.08);        // G4
+  playSquareNote(523, t + 0.1, 0.1, 0.08);  // C5
+  playSquareNote(659, t + 0.2, 0.1, 0.08);  // E5
+  playSquareNote(784, t + 0.3, 0.1, 0.1);   // G5
+  playSquareNote(1047, t + 0.4, 0.3, 0.12); // C6
+}

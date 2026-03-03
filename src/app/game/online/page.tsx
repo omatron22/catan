@@ -222,7 +222,7 @@ export default function OnlineGamePage() {
     const vpIdx = lobbyConfig ? (VP_OPTIONS as readonly number[]).indexOf(lobbyConfig.vpToWin) : 7;
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
+      <div className="h-screen flex flex-col bg-[#2a6ab5] overflow-hidden relative">
         <button
           onClick={handleLeaveGame}
           className="absolute top-4 left-4 z-20 font-pixel text-[9px] text-white/70 hover:text-white"
@@ -231,123 +231,136 @@ export default function OnlineGamePage() {
           &larr; LEAVE
         </button>
 
-        <div className="relative z-10 w-full max-w-5xl px-4">
-          {/* Header + Room Code Banner */}
-          <div className="text-center mb-3">
-            <h1 className="font-pixel text-[28px] text-amber-400" style={{ textShadow: "3px 3px 0 #000" }}>ERFINDUNG</h1>
-            <div className="flex items-center justify-center gap-3 mt-2">
-              <span className="font-pixel text-[10px] text-white/70">ROOM CODE</span>
-              <span className="font-pixel text-[28px] text-amber-300 tracking-[0.3em]" style={{ textShadow: "2px 2px 0 #000" }}>{roomCode}</span>
-              <button onClick={() => navigator.clipboard.writeText(shareUrl)} className="px-3 py-1.5 bg-white/20 border-2 border-white/40 font-pixel text-[7px] text-white hover:bg-white/30 transition-colors" title="Copy invite link">COPY LINK</button>
-            </div>
+        {/* Fun facts ticker + room code */}
+        <div className="relative z-10 w-full bg-[#1a1a2e]/70 border-b-2 border-[#3a3a5e] py-2 overflow-hidden">
+          <div className="flex items-center justify-center gap-3 mb-1">
+            <span className="font-pixel text-[10px] text-white/70">ROOM CODE</span>
+            <span className="font-pixel text-[20px] text-amber-300 tracking-[0.3em]" style={{ textShadow: "2px 2px 0 #000" }}>{roomCode}</span>
+            <button onClick={() => navigator.clipboard.writeText(shareUrl)} className="px-3 py-1 bg-white/20 border-2 border-white/40 font-pixel text-[7px] text-white hover:bg-white/30 transition-colors" title="Copy invite link">COPY LINK</button>
           </div>
+          <div className="lobby-ticker whitespace-nowrap font-pixel text-[7px] text-amber-300/60">
+            <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
+            <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
+            <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
+            <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
+            <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
+            <span className="mx-8">A single grain harvest could feed a village for an entire winter</span>
+            <span className="mx-8">Knights trained from age 7 as pages before earning their spurs</span>
+            <span className="mx-8">Medieval lumber was so valuable that forests had armed guards</span>
+            <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
+            <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
+            <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
+            <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
+          </div>
+        </div>
 
-          {/* 3-column layout */}
-          <div className="flex gap-3 items-start">
-            {/* LEFT — Players */}
-            <div className="w-56 shrink-0 flex flex-col gap-3">
-              <div className="bg-[#f0e6d0] pixel-border p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="font-pixel text-[9px] text-gray-700">PLAYERS ({lobbyPlayers.length}/{isExpansion ? 6 : 4})</h2>
-                </div>
-                <div className="space-y-2">
-                  {lobbyPlayers.map((player) => {
-                    const isMe = player.index === myPlayerIndex;
-                    const canEditBot = isHost && player.isBot;
-                    const canPickColor = isMe || canEditBot;
-                    return (
-                      <div key={player.index} className="relative">
-                        <div className="flex items-center gap-2 bg-[#e8d8b8] px-2 py-1.5 border-2 border-black">
-                          <button
-                            className={`w-6 h-6 border-2 border-black shrink-0 relative ${canPickColor ? "cursor-pointer" : "cursor-default"}`}
-                            style={{ backgroundColor: PLAYER_COLOR_HEX[player.color] ?? "#888" }}
-                            onClick={canPickColor ? () => { setColorPickerOpen(colorPickerOpen === player.index ? null : player.index); setStylePickerOpen(null); } : undefined}
-                            title={`Color: ${player.color}`}
-                          >
-                            {canPickColor && <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold" style={{ color: ["white", "yellow"].includes(player.color) ? "#333" : "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>{colorPickerOpen === player.index ? "\u25B2" : "\u25BC"}</span>}
-                          </button>
-                          {canEditBot && editingBotNameIdx === player.index ? (
-                            <input
-                              type="text"
-                              value={editingBotName}
-                              onChange={(e) => setEditingBotName(e.target.value)}
-                              onBlur={() => handleSaveBotName(player.index)}
-                              onKeyDown={(e) => { if (e.key === "Enter") handleSaveBotName(player.index); }}
-                              maxLength={20}
-                              className="flex-1 bg-white px-1 py-0.5 text-[8px] text-gray-800 border border-gray-400 focus:outline-none min-w-0 font-pixel"
-                              autoFocus
-                            />
-                          ) : (
-                          <span
-                            className={`flex-1 font-pixel text-[8px] text-gray-800 truncate ${canEditBot ? "cursor-pointer hover:text-amber-700" : ""}`}
-                            onClick={canEditBot ? () => { setEditingBotNameIdx(player.index); setEditingBotName(player.name); } : undefined}
-                          >
-                            {player.name}
-                            {player.isBot && <span className="text-gray-500 text-[6px] ml-1">(BOT)</span>}
-                            {player.index === hostIndex && <span className="text-amber-600 text-[6px] ml-1">HOST</span>}
-                          </span>
-                          )}
-                          {isMe && (
-                            <button
-                              className={`w-7 h-7 flex items-center justify-center border-2 shrink-0 ${stylePickerOpen === player.index ? "border-amber-500 bg-amber-50" : "border-gray-400 hover:border-gray-600"}`}
-                              onClick={() => { setStylePickerOpen(stylePickerOpen === player.index ? null : player.index); setColorPickerOpen(null); }}
-                              title={`Style: ${STYLE_DEFS[player.buildingStyle as BuildingStyle ?? DEFAULT_BUILDING_STYLE].name}`}
-                            >
-                              <StylePreview style={(player.buildingStyle as BuildingStyle) ?? DEFAULT_BUILDING_STYLE} type="settlement" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
+        {/* Main 3-column layout */}
+        <div className="relative z-10 flex flex-1 min-h-0">
+          {/* LEFT — Players (flush left) */}
+          <div className="w-60 shrink-0 flex flex-col bg-[#f0e6d0] border-r-4 border-black">
+            <div className="px-4 pt-4 pb-2">
+              <h2 className="font-pixel text-[9px] text-gray-700">PLAYERS ({lobbyPlayers.length}/{isExpansion ? 6 : 4})</h2>
+            </div>
+            <div className="flex-1 px-4 space-y-2 overflow-y-auto">
+              {lobbyPlayers.map((player) => {
+                const isMe = player.index === myPlayerIndex;
+                const canEditBot = isHost && player.isBot;
+                const canPickColor = isMe || canEditBot;
+                return (
+                  <div key={player.index} className="relative">
+                    <div className="flex items-center gap-2 bg-[#e8d8b8] px-2 py-1.5 border-2 border-black">
+                      <button
+                        className={`w-6 h-6 border-2 border-black shrink-0 relative ${canPickColor ? "cursor-pointer" : "cursor-default"}`}
+                        style={{ backgroundColor: PLAYER_COLOR_HEX[player.color] ?? "#888" }}
+                        onClick={canPickColor ? () => { setColorPickerOpen(colorPickerOpen === player.index ? null : player.index); setStylePickerOpen(null); } : undefined}
+                        title={`Color: ${player.color}`}
+                      >
+                        {canPickColor && <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold" style={{ color: ["white", "yellow"].includes(player.color) ? "#333" : "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>{colorPickerOpen === player.index ? "\u25B2" : "\u25BC"}</span>}
+                      </button>
+                      {canEditBot && editingBotNameIdx === player.index ? (
+                        <input
+                          type="text"
+                          value={editingBotName}
+                          onChange={(e) => setEditingBotName(e.target.value)}
+                          onBlur={() => handleSaveBotName(player.index)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveBotName(player.index); }}
+                          maxLength={20}
+                          className="flex-1 bg-white px-1 py-0.5 text-[8px] text-gray-800 border border-gray-400 focus:outline-none min-w-0 font-pixel"
+                          autoFocus
+                        />
+                      ) : (
+                      <span
+                        className={`flex-1 font-pixel text-[8px] text-gray-800 truncate ${canEditBot ? "cursor-pointer hover:text-amber-700" : ""}`}
+                        onClick={canEditBot ? () => { setEditingBotNameIdx(player.index); setEditingBotName(player.name); } : undefined}
+                      >
+                        {player.name}
+                        {player.isBot && <span className="text-gray-500 text-[6px] ml-1">(BOT)</span>}
+                        {player.index === hostIndex && <span className="text-amber-600 text-[6px] ml-1">HOST</span>}
+                      </span>
+                      )}
+                      {isMe && (
+                        <button
+                          className={`w-7 h-7 flex items-center justify-center border-2 shrink-0 ${stylePickerOpen === player.index ? "border-amber-500 bg-amber-50" : "border-gray-400 hover:border-gray-600"}`}
+                          onClick={() => { setStylePickerOpen(stylePickerOpen === player.index ? null : player.index); setColorPickerOpen(null); }}
+                          title={`Style: ${STYLE_DEFS[player.buildingStyle as BuildingStyle ?? DEFAULT_BUILDING_STYLE].name}`}
+                        >
+                          <StylePreview style={(player.buildingStyle as BuildingStyle) ?? DEFAULT_BUILDING_STYLE} type="settlement" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
+                        </button>
+                      )}
+                      {isHost && player.isBot && (
+                        <button className="w-4 h-4 font-pixel text-[9px] text-red-600 hover:text-red-800 shrink-0" onClick={() => handleRemoveBot(player.index)} title="Remove bot">X</button>
+                      )}
+                    </div>
+
+                    {/* Color picker dropdown */}
+                    {canPickColor && colorPickerOpen === player.index && (
+                      <div ref={colorPickerRef} className="bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
+                        <div className="flex flex-wrap gap-1">
+                          {PLAYER_COLORS.map((c) => (
+                            <button key={c} className={`relative flex items-center gap-1 px-1.5 py-0.5 border-2 transition-all ${player.color === c ? "border-gray-900 scale-105" : "border-gray-400 hover:border-gray-700 cursor-pointer hover:scale-105"}`} style={{ backgroundColor: `${PLAYER_COLOR_HEX[c]}25` }} onClick={() => canEditBot ? handleBotPickColor(player.index, c) : handlePickColor(c)}>
+                              <span className="w-3 h-3 border border-black/30 shrink-0" style={{ backgroundColor: PLAYER_COLOR_HEX[c] }} />
+                              <span className="font-pixel text-[5px] text-gray-700 uppercase">{c}</span>
                             </button>
-                          )}
-                          {isHost && player.isBot && (
-                            <button className="w-4 h-4 font-pixel text-[9px] text-red-600 hover:text-red-800 shrink-0" onClick={() => handleRemoveBot(player.index)} title="Remove bot">X</button>
-                          )}
+                          ))}
                         </div>
-
-                        {/* Color picker dropdown */}
-                        {canPickColor && colorPickerOpen === player.index && (
-                          <div ref={colorPickerRef} className="bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
-                            <div className="flex flex-wrap gap-1">
-                              {PLAYER_COLORS.map((c) => (
-                                <button key={c} className={`relative flex items-center gap-1 px-1.5 py-0.5 border-2 transition-all ${player.color === c ? "border-gray-900 scale-105" : "border-gray-400 hover:border-gray-700 cursor-pointer hover:scale-105"}`} style={{ backgroundColor: `${PLAYER_COLOR_HEX[c]}25` }} onClick={() => canEditBot ? handleBotPickColor(player.index, c) : handlePickColor(c)}>
-                                  <span className="w-3 h-3 border border-black/30 shrink-0" style={{ backgroundColor: PLAYER_COLOR_HEX[c] }} />
-                                  <span className="font-pixel text-[5px] text-gray-700 uppercase">{c}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Style picker dropdown */}
-                        {isMe && stylePickerOpen === player.index && (
-                          <div className="absolute left-0 z-50 w-64 bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
-                            <div className="grid grid-cols-3 gap-1">
-                              {BUILDING_STYLES.map((s) => (
-                                <button key={s} className={`flex flex-col items-center gap-0.5 px-1 py-1 border-2 transition-all ${((player.buildingStyle as BuildingStyle) ?? DEFAULT_BUILDING_STYLE) === s ? "border-amber-500 bg-amber-50 scale-105" : "border-gray-300 hover:border-gray-600 cursor-pointer hover:scale-105"}`} onClick={() => handlePickStyle(s)}>
-                                  <div className="flex gap-0.5">
-                                    <StylePreview style={s} type="settlement" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
-                                    <StylePreview style={s} type="city" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
-                                  </div>
-                                  <span className="font-pixel text-[5px] text-gray-700">{STYLE_DEFS[s].name.toUpperCase()}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
-                    );
-                  })}
-                </div>
-                {isHost && lobbyPlayers.length < 6 && (
-                  <button onClick={handleAddBot} className="w-full mt-2 py-2 font-pixel text-[8px] pixel-btn bg-[#8BC34A] text-white hover:bg-[#7CB342]">+ ADD BOT</button>
-                )}
-              </div>
+                    )}
+
+                    {/* Style picker dropdown */}
+                    {isMe && stylePickerOpen === player.index && (
+                      <div className="absolute left-0 z-50 w-64 bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
+                        <div className="grid grid-cols-3 gap-1">
+                          {BUILDING_STYLES.map((s) => (
+                            <button key={s} className={`flex flex-col items-center gap-0.5 px-1 py-1 border-2 transition-all ${((player.buildingStyle as BuildingStyle) ?? DEFAULT_BUILDING_STYLE) === s ? "border-amber-500 bg-amber-50 scale-105" : "border-gray-300 hover:border-gray-600 cursor-pointer hover:scale-105"}`} onClick={() => handlePickStyle(s)}>
+                              <div className="flex gap-0.5">
+                                <StylePreview style={s} type="settlement" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
+                                <StylePreview style={s} type="city" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
+                              </div>
+                              <span className="font-pixel text-[5px] text-gray-700">{STYLE_DEFS[s].name.toUpperCase()}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-4 pb-4 pt-2">
+              {isHost && lobbyPlayers.length < 6 && (
+                <button onClick={handleAddBot} className="w-full py-2 font-pixel text-[8px] pixel-btn bg-[#8BC34A] text-white hover:bg-[#7CB342]">+ ADD BOT</button>
+              )}
               {isExpansion && (
-                <div className="bg-amber-100 pixel-border-sm px-3 py-1.5 text-center">
+                <div className="mt-2 bg-amber-100 pixel-border-sm px-3 py-1.5 text-center">
                   <span className="font-pixel text-[7px] text-amber-700">EXPANSION BOARD</span>
                 </div>
               )}
             </div>
+          </div>
 
-            {/* CENTER — Settings */}
-            <div className="flex-1 flex flex-col gap-3 min-w-0">
+          {/* CENTER — Settings + Start */}
+          <div className="flex-1 flex flex-col min-w-0 px-6 py-4">
+            <div className="flex-1 flex flex-col gap-3 justify-center max-w-xl mx-auto w-full">
               <div className="bg-[#f0e6d0] pixel-border p-4">
                 <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
                 <div className="flex justify-center gap-3">
@@ -394,41 +407,43 @@ export default function OnlineGamePage() {
                   </div>
                 </div>
               </div>
+            </div>
 
+            {/* Errors + Start at bottom */}
+            <div className="max-w-xl mx-auto w-full pt-2">
               {(localError || error) && (
-                <div className="bg-red-100 pixel-border-sm px-3 py-2 text-center">
+                <div className="bg-red-100 pixel-border-sm px-3 py-2 text-center mb-2">
                   <p className="font-pixel text-[8px] text-red-700">{localError || error}</p>
                 </div>
               )}
-
               {isHost ? (
                 <button onClick={handleStartGameClick} disabled={lobbyPlayers.length < 2} className="w-full py-4 bg-amber-400 text-gray-900 font-pixel text-[12px] pixel-btn disabled:opacity-50">START GAME</button>
               ) : (
                 <div className="w-full py-4 text-center"><p className="font-pixel text-[10px] text-white/70 animate-pulse">WAITING FOR HOST TO START...</p></div>
               )}
-              {!connected && <p className="font-pixel text-[7px] text-red-400 text-center animate-pulse">DISCONNECTED — RECONNECTING...</p>}
+              {!connected && <p className="font-pixel text-[7px] text-red-400 text-center animate-pulse mt-1">DISCONNECTED — RECONNECTING...</p>}
             </div>
+          </div>
 
-            {/* RIGHT — Chat */}
-            <div className="w-56 shrink-0">
-              <div className="bg-[#f0e6d0] pixel-border p-4 flex flex-col">
-                <h2 className="font-pixel text-[9px] text-gray-700 mb-2 text-center">CHAT</h2>
-                <div className="flex-1 bg-[#e8d8b8] border-2 border-black p-2 mb-2 overflow-y-auto game-log-scroll min-h-[120px] max-h-[400px]">
-                  {chatMessages.length === 0 ? (
-                    <p className="font-pixel text-[7px] text-gray-400 text-center mt-4">No messages yet...</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {chatMessages.map((msg, i) => (
-                        <div key={i}><span className="font-pixel text-[7px] text-amber-700 font-bold">{msg.playerName}: </span><span className="font-pixel text-[7px] text-gray-700">{msg.text}</span></div>
-                      ))}
-                    </div>
-                  )}
+          {/* RIGHT — Chat (flush right) */}
+          <div className="w-60 shrink-0 flex flex-col bg-[#f0e6d0] border-l-4 border-black">
+            <div className="px-4 pt-4 pb-2">
+              <h2 className="font-pixel text-[9px] text-gray-700 text-center">CHAT</h2>
+            </div>
+            <div className="flex-1 mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll">
+              {chatMessages.length === 0 ? (
+                <p className="font-pixel text-[7px] text-gray-400 text-center mt-4">No messages yet...</p>
+              ) : (
+                <div className="space-y-1">
+                  {chatMessages.map((msg, i) => (
+                    <div key={i}><span className="font-pixel text-[7px] text-amber-700 font-bold">{msg.playerName}: </span><span className="font-pixel text-[7px] text-gray-700">{msg.text}</span></div>
+                  ))}
                 </div>
-                <div className="flex gap-1">
-                  <input type="text" value={lobbyChatInput} onChange={(e) => setLobbyChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendLobbyChat()} placeholder="Send a message..." className="flex-1 bg-white px-2 py-1 text-[9px] text-gray-800 border-2 border-black focus:outline-none min-w-0" />
-                  <button onClick={sendLobbyChat} className="px-2 py-1 bg-amber-400 border-2 border-black font-pixel text-[8px] hover:bg-amber-500">&gt;</button>
-                </div>
-              </div>
+              )}
+            </div>
+            <div className="flex gap-1 px-4 py-4">
+              <input type="text" value={lobbyChatInput} onChange={(e) => setLobbyChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendLobbyChat()} placeholder="Send a message..." className="flex-1 bg-white px-2 py-1 text-[9px] text-gray-800 border-2 border-black focus:outline-none min-w-0" />
+              <button onClick={sendLobbyChat} className="px-2 py-1 bg-amber-400 border-2 border-black font-pixel text-[8px] hover:bg-amber-500">&gt;</button>
             </div>
           </div>
         </div>

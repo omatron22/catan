@@ -189,3 +189,14 @@ body {
 .anim-card-lose {
   animation: card-lose 1.2s ease-out forwards;
 }
+
+/* Lobby ticker animation */
+@keyframes lobby-ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.lobby-ticker {
+  display: inline-block;
+  animation: lobby-ticker 60s linear infinite;
+}

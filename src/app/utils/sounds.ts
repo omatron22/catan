@@ -185,3 +185,44 @@ export function playAchievement() {
   playSquareNote(784, t + 0.3, 0.1, 0.1);   // G5
   playSquareNote(1047, t + 0.4, 0.3, 0.12); // C6
 }
+
+/** Menu open — short ascending whoosh */
+export function playMenuOpen() {
+  const ctx = getContext();
+  const t = ctx.currentTime;
+  playSquareNote(330, t, 0.06, 0.05);
+  playSquareNote(440, t + 0.05, 0.06, 0.05);
+  playSquareNote(554, t + 0.1, 0.08, 0.06);
+}
+
+/** Menu close — short descending whoosh */
+export function playMenuClose() {
+  const ctx = getContext();
+  const t = ctx.currentTime;
+  playSquareNote(554, t, 0.06, 0.05);
+  playSquareNote(440, t + 0.05, 0.06, 0.05);
+  playSquareNote(330, t + 0.1, 0.08, 0.04);
+}
+
+/** Navigate / start — confident double ding */
+export function playNavigate() {
+  const ctx = getContext();
+  const t = ctx.currentTime;
+  playSquareNote(659, t, 0.08, 0.08);       // E5
+  playSquareNote(880, t + 0.1, 0.15, 0.1);  // A5
+}
+
+/** Hover tick — very subtle blip for hover feedback */
+export function playHover() {
+  const ctx = getContext();
+  const t = ctx.currentTime;
+  playSquareNote(600, t, 0.015, 0.02);
+}
+
+/** Confirm action — firm click */
+export function playConfirm() {
+  const ctx = getContext();
+  const t = ctx.currentTime;
+  playSquareNote(523, t, 0.05, 0.07);
+  playSquareNote(784, t + 0.06, 0.1, 0.08);
+}

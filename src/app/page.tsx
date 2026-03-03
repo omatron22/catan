@@ -10,6 +10,7 @@ import { STYLE_DEFS } from "@/shared/buildingStyles";
 import { StylePreview, RuleCard } from "@/app/components/ui/LobbyComponents";
 import { useSocket } from "@/app/hooks/useSocket";
 import { useMultiplayerStore } from "@/app/stores/multiplayerStore";
+import { playClick, playNavigate, playError as playErrorSound } from "@/app/utils/sounds";
 
 const ALL_COLORS = PLAYER_COLORS;
 const BOT_NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve"];
@@ -105,6 +106,7 @@ export default function Home() {
 
   function addBot() {
     if (players.length >= 6) return;
+    playClick();
     const usedNames = new Set(players.map((p) => p.name));
     const name = BOT_NAMES.find((n) => !usedNames.has(n)) ?? `Bot ${players.length}`;
     const color = ALL_COLORS.find((c) => !usedColors.has(c)) ?? "green";
@@ -113,6 +115,7 @@ export default function Home() {
 
   function removeBot(idx: number) {
     if (idx === 0 || players.length <= 2) return;
+    playClick();
     setPlayers(players.filter((_, i) => i !== idx));
   }
 
@@ -121,6 +124,7 @@ export default function Home() {
   }
 
   function pickColor(playerIdx: number, color: string) {
+    playClick();
     // Swap with whoever had this color
     const otherIdx = players.findIndex((p, i) => i !== playerIdx && p.color === color);
     if (otherIdx !== -1) {
@@ -137,11 +141,13 @@ export default function Home() {
   }
 
   function pickStyle(playerIdx: number, style: BuildingStyle) {
+    playClick();
     setBuildingStyles((prev) => ({ ...prev, [playerIdx]: style }));
     setStylePickerOpen(null);
   }
 
   function startGame() {
+    playNavigate();
     setValidationError(null);
 
     // Validation
@@ -213,6 +219,7 @@ export default function Home() {
   function createRoom() {
     const name = players[0].name.trim() || "Player";
     if (!socket || !connected) return;
+    playNavigate();
     setCreating(true);
     socket.emit("room:join", { roomCode: "", playerName: name });
   }
@@ -220,6 +227,7 @@ export default function Home() {
   function joinRoom() {
     const name = players[0].name.trim() || "Player";
     if (!socket || !connected || !joinCode.trim()) return;
+    playNavigate();
     setCreating(true);
     socket.emit("room:join", { roomCode: joinCode.trim().toUpperCase(), playerName: name });
   }
@@ -258,7 +266,7 @@ export default function Home() {
           </h1>
 
           <button
-            onClick={() => setShowLobby(true)}
+            onClick={() => { playNavigate(); setShowLobby(true); }}
             className="px-14 py-5 bg-amber-400 text-gray-900 font-pixel text-[20px] pixel-btn start-pulse"
           >
             PLAY
@@ -283,7 +291,7 @@ export default function Home() {
       {cloudLayer}
 
       <button
-        onClick={() => setShowLobby(false)}
+        onClick={() => { playClick(); setShowLobby(false); }}
         className="absolute top-4 left-4 z-20 font-pixel text-[9px] text-white/70 hover:text-white"
         title="Back to menu"
       >
@@ -452,8 +460,8 @@ export default function Home() {
             <div className="bg-[#f0e6d0] pixel-border p-4">
               <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
               <div className="flex justify-center gap-3">
-                <RuleCard label="FRIENDLY ROBBER" active={friendlyRobber} onClick={() => setFriendlyRobber(!friendlyRobber)} icon="robber" />
-                <RuleCard label="BALANCED DICE" active={fairDice} onClick={() => setFairDice(!fairDice)} icon="dice" />
+                <RuleCard label="FRIENDLY ROBBER" active={friendlyRobber} onClick={() => { playClick(); setFriendlyRobber(!friendlyRobber); }} icon="robber" />
+                <RuleCard label="BALANCED DICE" active={fairDice} onClick={() => { playClick(); setFairDice(!fairDice); }} icon="dice" />
               </div>
             </div>
 
@@ -468,7 +476,7 @@ export default function Home() {
                   <div className="flex items-center justify-center gap-2">
                     <button
                       className="font-pixel text-[10px] text-gray-700 hover:text-gray-900 px-1"
-                      onClick={() => timerIdx > 0 && setTurnTimer(TURN_TIMER_OPTIONS[timerIdx - 1])}
+                      onClick={() => { if (timerIdx > 0) { playClick(); setTurnTimer(TURN_TIMER_OPTIONS[timerIdx - 1]); } }}
                     >
                       &lt;
                     </button>
@@ -477,7 +485,7 @@ export default function Home() {
                     </span>
                     <button
                       className="font-pixel text-[10px] text-gray-700 hover:text-gray-900 px-1"
-                      onClick={() => timerIdx < TURN_TIMER_OPTIONS.length - 1 && setTurnTimer(TURN_TIMER_OPTIONS[timerIdx + 1])}
+                      onClick={() => { if (timerIdx < TURN_TIMER_OPTIONS.length - 1) { playClick(); setTurnTimer(TURN_TIMER_OPTIONS[timerIdx + 1]); } }}
                     >
                       &gt;
                     </button>
@@ -492,7 +500,7 @@ export default function Home() {
                       className={`px-3 py-1 font-pixel text-[7px] border-2 border-black border-r-0 ${
                         gameMode === "classic" ? "bg-amber-400 text-gray-900" : "bg-[#e8d8b8] text-gray-500"
                       }`}
-                      onClick={() => setGameMode("classic")}
+                      onClick={() => { playClick(); setGameMode("classic"); }}
                     >
                       CLASSIC
                     </button>
@@ -500,7 +508,7 @@ export default function Home() {
                       className={`px-3 py-1 font-pixel text-[7px] border-2 border-black ${
                         gameMode === "speed" ? "bg-amber-400 text-gray-900" : "bg-[#e8d8b8] text-gray-500"
                       }`}
-                      onClick={() => setGameMode("speed")}
+                      onClick={() => { playClick(); setGameMode("speed"); }}
                     >
                       SPEED
                     </button>
@@ -513,7 +521,7 @@ export default function Home() {
                   <div className="flex items-center justify-center gap-2">
                     <button
                       className="font-pixel text-[10px] text-gray-700 hover:text-gray-900 px-1"
-                      onClick={() => vpIdx > 0 && setCustomVp(VP_OPTIONS[vpIdx - 1])}
+                      onClick={() => { if (vpIdx > 0) { playClick(); setCustomVp(VP_OPTIONS[vpIdx - 1]); } }}
                     >
                       &lt;
                     </button>
@@ -522,7 +530,7 @@ export default function Home() {
                     </span>
                     <button
                       className="font-pixel text-[10px] text-gray-700 hover:text-gray-900 px-1"
-                      onClick={() => vpIdx < VP_OPTIONS.length - 1 && setCustomVp(VP_OPTIONS[vpIdx + 1])}
+                      onClick={() => { if (vpIdx < VP_OPTIONS.length - 1) { playClick(); setCustomVp(VP_OPTIONS[vpIdx + 1]); } }}
                     >
                       &gt;
                     </button>

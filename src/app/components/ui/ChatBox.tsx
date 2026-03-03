@@ -9,6 +9,7 @@ import {
   HelmetPixel, RoadBuildPixel, CornucopiaPixel, MonopolyPixel,
   CrownPixel, DiceFacePixel, ResourcePixel,
 } from "@/app/components/icons/PixelIcons";
+import { playClick } from "@/app/utils/sounds";
 
 interface Props {
   log: GameLogEntry[];
@@ -223,16 +224,16 @@ export default function ChatBox({ log, playerColors, playerNames, localPlayerInd
     <div className="flex flex-col flex-1 min-h-0">
       {/* Tab header */}
       <div className="flex flex-shrink-0 border-b-2 border-black">
-        <button onClick={() => setActiveTab("chat")} className={tabClass("chat")}>
+        <button onClick={() => { playClick(); setActiveTab("chat"); }} className={tabClass("chat")}>
           CHAT
           {chatEntries.length > 0 && activeTab !== "chat" && (
             <span className="ml-1 text-[6px] bg-amber-400 text-black px-1 border border-black">{chatEntries.length}</span>
           )}
         </button>
-        <button onClick={() => setActiveTab("log")} className={tabClass("log")}>
+        <button onClick={() => { playClick(); setActiveTab("log"); }} className={tabClass("log")}>
           LOG
         </button>
-        <button onClick={() => setActiveTab("stats")} className={tabClass("stats")}>
+        <button onClick={() => { playClick(); setActiveTab("stats"); }} className={tabClass("stats")}>
           STATS
         </button>
       </div>

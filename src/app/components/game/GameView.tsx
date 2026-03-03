@@ -26,7 +26,7 @@ import {
   MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES,
   EXPANSION_MAX_ROADS, EXPANSION_MAX_SETTLEMENTS, EXPANSION_MAX_CITIES,
 } from "@/shared/constants";
-import { getMasterVolume, setMasterVolume } from "@/app/utils/sounds";
+import { getMasterVolume, setMasterVolume, playClick, playMenuOpen, playMenuClose, playConfirm } from "@/app/utils/sounds";
 
 type AnyGameState = GameState | ClientGameState;
 
@@ -440,7 +440,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
           {/* Menu button */}
           <button
-            onClick={() => setMenuOpen(true)}
+            onClick={() => { playMenuOpen(); setMenuOpen(true); }}
             className="absolute top-2 left-2 z-30 w-9 h-9 flex flex-col items-center justify-center gap-[3px] bg-[#f0e6d0]/90 hover:bg-[#f0e6d0] border-2 border-[#8b7355] transition-colors pixel-border-sm cursor-pointer"
             title="Menu"
           >
@@ -836,7 +836,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
       {/* Game menu overlay */}
       {menuOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { setMenuOpen(false); setConfirmAction(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { playMenuClose(); setMenuOpen(false); setConfirmAction(null); }}>
           <div className="absolute inset-0 bg-black/60" />
           <div
             className="relative w-80 border-4 border-[#5a3e28] p-6"
@@ -880,7 +880,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             {/* Buttons */}
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => { setMenuOpen(false); setConfirmAction(null); }}
+                onClick={() => { playMenuClose(); setMenuOpen(false); setConfirmAction(null); }}
                 className="w-full py-2.5 bg-[#4a8c3f] hover:bg-[#5a9c4f] text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
               >
                 RESUME GAME
@@ -897,13 +897,13 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                       Your slot will be replaced by a bot. You can rejoin if the game is still active.
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => setConfirmAction(null)} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
-                      <button onClick={() => { setMenuOpen(false); setConfirmAction(null); onMainMenu(); }} className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, LEAVE</button>
+                      <button onClick={() => { playClick(); setConfirmAction(null); }} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                      <button onClick={() => { playConfirm(); setMenuOpen(false); setConfirmAction(null); onMainMenu(); }} className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, LEAVE</button>
                     </div>
                   </div>
                 ) : (
                   <button
-                    onClick={() => setConfirmAction("lobby")}
+                    onClick={() => { playClick(); setConfirmAction("lobby"); }}
                     className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
                   >
                     LEAVE GAME
@@ -921,13 +921,13 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                         Current game progress will be lost.
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setConfirmAction(null)} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
-                        <button onClick={() => { setMenuOpen(false); setConfirmAction(null); onLobby(); }} className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, LEAVE</button>
+                        <button onClick={() => { playClick(); setConfirmAction(null); }} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                        <button onClick={() => { playConfirm(); setMenuOpen(false); setConfirmAction(null); onLobby(); }} className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, LEAVE</button>
                       </div>
                     </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmAction("lobby")}
+                      onClick={() => { playClick(); setConfirmAction("lobby"); }}
                       className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
                     >
                       EXIT TO LOBBY
@@ -943,13 +943,13 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                         All game progress will be lost.
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setConfirmAction(null)} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
-                        <button onClick={() => { setMenuOpen(false); setConfirmAction(null); onMainMenu(); }} className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, EXIT</button>
+                        <button onClick={() => { playClick(); setConfirmAction(null); }} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                        <button onClick={() => { playConfirm(); setMenuOpen(false); setConfirmAction(null); onMainMenu(); }} className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, EXIT</button>
                       </div>
                     </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmAction("mainMenu")}
+                      onClick={() => { playClick(); setConfirmAction("mainMenu"); }}
                       className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
                     >
                       EXIT TO MAIN MENU
@@ -961,7 +961,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
             {/* Close X */}
             <button
-              onClick={() => { setMenuOpen(false); setConfirmAction(null); }}
+              onClick={() => { playMenuClose(); setMenuOpen(false); setConfirmAction(null); }}
               className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center text-[#8b7355] hover:text-[#5a3e28] font-pixel text-[12px] transition-colors"
             >
               X

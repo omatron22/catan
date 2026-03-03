@@ -32,6 +32,7 @@ type AnyGameState = GameState | ClientGameState;
 
 export interface GameViewHandle {
   closeTrade: () => void;
+  resetTrade: () => void;
 }
 
 export interface GameViewProps {
@@ -102,20 +103,11 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     onDismissAnnouncement,
   } = props;
 
-  // --- Settings panel ---
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // --- Menu panel ---
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"lobby" | "mainMenu" | null>(null);
   const [volume, setVolume] = useState(getMasterVolume());
-  const settingsRef = useRef<HTMLDivElement>(null);
-
-  // Close settings on outside click
-  useEffect(() => {
-    if (!settingsOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setSettingsOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [settingsOpen]);
+  const isOnline = connected !== undefined;
 
   // --- Active action state ---
   const [activeAction, setActiveAction] = useState<string | null>(null);
@@ -133,9 +125,10 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     myPlayer.portsAccess as Array<Resource | "any">,
   );
 
-  // Expose closeTrade to parent via ref
+  // Expose closeTrade/resetTrade to parent via ref
   useImperativeHandle(ref, () => ({
     closeTrade: trade.closeTrade,
+    resetTrade: trade.resetTrade,
   }));
 
   // --- Resource change notifications ---
@@ -406,7 +399,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
       {/* Left column: board + trade strips + bottom bar */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Board */}
-        <div className="flex-1 flex items-center justify-center p-1 min-h-0 min-w-0 overflow-hidden relative">
+        <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 overflow-hidden relative">
           <HexBoard
             board={gameState.board}
             size={50}
@@ -422,59 +415,39 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             onHexClick={isMyTurn ? handleHexClick : undefined}
           />
 
-          {/* Settings gear */}
-          <div className="absolute top-2 left-2 z-30" ref={settingsRef}>
-            <button
-              onClick={() => setSettingsOpen(!settingsOpen)}
-              className="w-8 h-8 flex items-center justify-center bg-[#1a1a2e]/90 border-2 border-[#3a3a5e] text-gray-300 hover:text-white hover:bg-[#1a1a2e] transition-colors"
-              title="Settings"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" shapeRendering="crispEdges">
-                <rect x="6" y="0" width="4" height="2" />
-                <rect x="6" y="14" width="4" height="2" />
-                <rect x="0" y="6" width="2" height="4" />
-                <rect x="14" y="6" width="2" height="4" />
-                <rect x="2" y="2" width="2" height="2" />
-                <rect x="12" y="2" width="2" height="2" />
-                <rect x="2" y="12" width="2" height="2" />
-                <rect x="12" y="12" width="2" height="2" />
-                <rect x="4" y="4" width="8" height="8" />
-                <rect x="6" y="6" width="4" height="4" fill="#1a1a2e" />
-              </svg>
-            </button>
-            {settingsOpen && (
-              <div className="mt-1 bg-[#1a1a2e]/95 border-2 border-[#3a3a5e] p-3 w-48" style={{ backdropFilter: "blur(4px)" }}>
-                <div className="mb-3">
-                  <label className="font-pixel text-[7px] text-gray-400 block mb-1">VOLUME</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={volume}
-                      onChange={(e) => { const v = Number(e.target.value); setVolume(v); setMasterVolume(v); }}
-                      className="flex-1 h-1 accent-amber-400"
-                    />
-                    <span className="font-pixel text-[7px] text-gray-300 w-6 text-right">{volume}</span>
-                  </div>
+          {/* Turn/phase status overlay */}
+          <div className="absolute top-32 left-4 z-10 pointer-events-none" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 14px rgba(0,0,0,0.7))" }}>
+            {needsDiscard ? (
+              <div className="font-pixel text-[18px] text-red-400">SELECT CARDS TO DISCARD</div>
+            ) : (
+              <>
+                <div className={`font-pixel text-[28px] leading-none ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
+                  {isMyTurn ? "YOUR TURN" : `${currentPlayer.name.toUpperCase()}'S TURN`}
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={onLobby}
-                    className="flex-1 py-1.5 bg-amber-600/80 hover:bg-amber-600 text-white font-pixel text-[7px] border-2 border-black transition-colors"
-                  >
-                    LOBBY
-                  </button>
-                  <button
-                    onClick={onMainMenu}
-                    className="flex-1 py-1.5 bg-red-600/80 hover:bg-red-600 text-white font-pixel text-[7px] border-2 border-black transition-colors"
-                  >
-                    MAIN MENU
-                  </button>
+                <div className="font-pixel text-[16px] text-white/80 mt-1">
+                  {phaseText}
+                  {botThinking && !isMyTurn && (
+                    <span className="animate-pulse ml-1">...</span>
+                  )}
                 </div>
-              </div>
+                {error && <div className="font-pixel text-[14px] text-red-400 mt-1">{error}</div>}
+                {connected === false && (
+                  <div className="font-pixel text-[14px] text-red-400 mt-1 animate-pulse">RECONNECTING...</div>
+                )}
+              </>
             )}
           </div>
+
+          {/* Menu button */}
+          <button
+            onClick={() => setMenuOpen(true)}
+            className="absolute top-2 left-2 z-30 w-9 h-9 flex flex-col items-center justify-center gap-[3px] bg-[#f0e6d0]/90 hover:bg-[#f0e6d0] border-2 border-[#8b7355] transition-colors pixel-border-sm cursor-pointer"
+            title="Menu"
+          >
+            <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
+            <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
+            <span className="block w-5 h-[3px] bg-[#5a4535] rounded-sm" />
+          </button>
 
           {/* Turn timer (top-right, always visible when active) */}
           {turnDeadline && (
@@ -599,10 +572,43 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
               </div>
             )}
           </div>
+
+          {/* Steal target buttons — floating bottom-left */}
+          {needsStealTarget && (
+            <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2">
+              <span className="font-pixel text-[10px] text-amber-300" style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>STEAL FROM:</span>
+              {stealTargets.map((targetIdx) => (
+                <button
+                  key={targetIdx}
+                  onClick={() => onAction({
+                    type: "steal-resource",
+                    playerIndex: myPlayerIndex,
+                    targetPlayer: targetIdx,
+                  })}
+                  className="px-4 py-2 font-pixel text-[10px] pixel-btn bg-[#e8d8b8] hover:bg-[#f0e6d0]"
+                  style={{
+                    color: PLAYER_COLOR_HEX[gameState.players[targetIdx].color],
+                  }}
+                >
+                  {gameState.players[targetIdx].name.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Bottom bar */}
-        <div className={`${needsDiscard ? "py-1.5" : "h-20"} bg-[#2a5a4a] border-t-4 border-black flex ${needsDiscard ? "flex-col gap-1 px-2" : "items-center px-2 gap-2"}`}>
+        {/* Bottom bar — cobblestone wall */}
+        <div
+          className={`${needsDiscard ? "py-1.5" : "h-20"} flex-shrink-0 flex ${needsDiscard ? "flex-col gap-1 px-2" : "items-center px-2 gap-2"} relative`}
+          style={{
+            backgroundColor: "#6b5840",
+            backgroundImage: `
+              url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='32'%3E%3Crect width='64' height='32' fill='%236b5840'/%3E%3Crect x='1' y='1' width='30' height='14' rx='2' fill='%237a6850' stroke='%23433020' stroke-width='1'/%3E%3Crect x='33' y='1' width='30' height='14' rx='2' fill='%23705e48' stroke='%23433020' stroke-width='1'/%3E%3Crect x='17' y='17' width='30' height='14' rx='2' fill='%23756350' stroke='%23433020' stroke-width='1'/%3E%3Crect x='-15' y='17' width='30' height='14' rx='2' fill='%236e5c46' stroke='%23433020' stroke-width='1'/%3E%3Crect x='49' y='17' width='30' height='14' rx='2' fill='%23725f4a' stroke='%23433020' stroke-width='1'/%3E%3C/svg%3E")
+            `,
+            backgroundSize: "64px 32px",
+            boxShadow: "inset 0 4px 6px rgba(0,0,0,0.5), 0 -2px 0 #2a1a0a",
+          }}
+        >
           {/* Discard staging area (top row) */}
           {needsDiscard && (
             <div className="flex items-center gap-2 bg-red-900/40 border border-red-500/50 px-2 py-1 rounded-sm">
@@ -739,53 +745,10 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             ))}
           </div>
 
-          {/* Steal target buttons */}
-          {needsStealTarget && (
-            <div className="flex gap-1.5 items-center ml-2">
-              <span className="font-pixel text-[7px] text-white">STEAL:</span>
-              {stealTargets.map((targetIdx) => (
-                <button
-                  key={targetIdx}
-                  onClick={() => onAction({
-                    type: "steal-resource",
-                    playerIndex: myPlayerIndex,
-                    targetPlayer: targetIdx,
-                  })}
-                  className="px-2 py-1 font-pixel text-[7px] pixel-btn bg-[#e8d8b8]"
-                  style={{
-                    color: PLAYER_COLOR_HEX[gameState.players[targetIdx].color],
-                  }}
-                >
-                  {gameState.players[targetIdx].name.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          )}
 
-          {/* Status center */}
-          <div className="flex-1 text-center">
-            {needsDiscard ? (
-              <div className="font-pixel text-[9px] text-red-400">
-                SELECT CARDS TO DISCARD
-              </div>
-            ) : (
-              <>
-                <div className={`font-pixel text-[9px] ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
-                  {isMyTurn ? "YOUR TURN" : `${currentPlayer.name.toUpperCase()}'S TURN`}
-                </div>
-                <div className="font-pixel text-[7px] text-gray-300 mt-0.5">
-                  {phaseText}
-                  {botThinking && !isMyTurn && (
-                    <span className="animate-pulse ml-1">...</span>
-                  )}
-                </div>
-                {error && <div className="font-pixel text-[7px] text-red-400 mt-0.5">{error}</div>}
-                {connected === false && (
-                  <div className="font-pixel text-[7px] text-red-400 mt-0.5 animate-pulse">RECONNECTING...</div>
-                )}
-              </>
-            )}
-          </div>
+
+          {/* Spacer */}
+          <div className="flex-1" />
 
           {/* Action buttons */}
           {canTradeOrBuild && (
@@ -869,6 +832,142 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           onAction={onAction}
           onClose={() => setActiveAction(null)}
         />
+      )}
+
+      {/* Game menu overlay */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { setMenuOpen(false); setConfirmAction(null); }}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative w-80 border-4 border-[#5a3e28] p-6"
+            style={{
+              backgroundColor: "#f0e6d0",
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='6' height='6' fill='%23f0e6d0'/%3E%3Crect x='0' y='0' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3C/svg%3E")`,
+              backgroundSize: "6px 6px",
+              boxShadow: "6px 6px 0 #000, inset 0 0 20px rgba(139,115,85,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Title */}
+            <div className="text-center mb-5">
+              <div className="font-pixel text-[16px] text-[#5a3e28]">MENU</div>
+              <div className="mt-1 h-[2px] bg-[#8b7355] mx-8" />
+            </div>
+
+            {/* Volume */}
+            <div className="mb-5">
+              <label className="font-pixel text-[9px] text-[#5a3e28] block mb-2">VOLUME</label>
+              <div className="flex items-center gap-3">
+                <span className="font-pixel text-[9px] text-[#8b7355]">
+                  {volume === 0 ? (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="#8b7355" shapeRendering="crispEdges"><rect x="1" y="4" width="3" height="6"/><rect x="4" y="2" width="2" height="10"/><rect x="6" y="0" width="2" height="14"/><rect x="10" y="3" width="1" height="2"/><rect x="11" y="5" width="1" height="4"/><rect x="10" y="9" width="1" height="2"/></svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="#5a3e28" shapeRendering="crispEdges"><rect x="1" y="4" width="3" height="6"/><rect x="4" y="2" width="2" height="10"/><rect x="6" y="0" width="2" height="14"/><rect x="10" y="3" width="1" height="2"/><rect x="11" y="5" width="1" height="4"/><rect x="10" y="9" width="1" height="2"/></svg>
+                  )}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={volume}
+                  onChange={(e) => { const v = Number(e.target.value); setVolume(v); setMasterVolume(v); }}
+                  className="flex-1 h-2 accent-[#8b7355] cursor-pointer"
+                />
+                <span className="font-pixel text-[9px] text-[#5a3e28] w-8 text-right">{volume}%</span>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => { setMenuOpen(false); setConfirmAction(null); }}
+                className="w-full py-2.5 bg-[#4a8c3f] hover:bg-[#5a9c4f] text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
+              >
+                RESUME GAME
+              </button>
+
+              {isOnline ? (
+                /* Online: single leave button */
+                confirmAction === "lobby" ? (
+                  <div className="bg-red-100 border-2 border-red-600 p-3">
+                    <div className="font-pixel text-[8px] text-red-800 text-center mb-2">
+                      LEAVE THIS GAME?
+                    </div>
+                    <div className="text-[9px] text-red-700 text-center mb-3">
+                      Your slot will be replaced by a bot. You can rejoin if the game is still active.
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setConfirmAction(null)} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                      <button onClick={() => { setMenuOpen(false); setConfirmAction(null); onMainMenu(); }} className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, LEAVE</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmAction("lobby")}
+                    className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
+                  >
+                    LEAVE GAME
+                  </button>
+                )
+              ) : (
+                /* Hotseat: lobby + main menu buttons */
+                <>
+                  {confirmAction === "lobby" ? (
+                    <div className="bg-amber-100 border-2 border-amber-600 p-3">
+                      <div className="font-pixel text-[8px] text-amber-800 text-center mb-2">
+                        RETURN TO LOBBY?
+                      </div>
+                      <div className="text-[9px] text-amber-700 text-center mb-3">
+                        Current game progress will be lost.
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setConfirmAction(null)} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                        <button onClick={() => { setMenuOpen(false); setConfirmAction(null); onLobby(); }} className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, LEAVE</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmAction("lobby")}
+                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
+                    >
+                      EXIT TO LOBBY
+                    </button>
+                  )}
+
+                  {confirmAction === "mainMenu" ? (
+                    <div className="bg-red-100 border-2 border-red-600 p-3">
+                      <div className="font-pixel text-[8px] text-red-800 text-center mb-2">
+                        EXIT TO MAIN MENU?
+                      </div>
+                      <div className="text-[9px] text-red-700 text-center mb-3">
+                        All game progress will be lost.
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setConfirmAction(null)} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                        <button onClick={() => { setMenuOpen(false); setConfirmAction(null); onMainMenu(); }} className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, EXIT</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmAction("mainMenu")}
+                      className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
+                    >
+                      EXIT TO MAIN MENU
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Close X */}
+            <button
+              onClick={() => { setMenuOpen(false); setConfirmAction(null); }}
+              className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center text-[#8b7355] hover:text-[#5a3e28] font-pixel text-[12px] transition-colors"
+            >
+              X
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

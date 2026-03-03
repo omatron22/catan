@@ -303,9 +303,9 @@ export default function HexBoard({
         </svg>
       </div>
 
-      {/* Zoom controls — top left, visible only when zooming */}
+      {/* Zoom controls — top right, visible only when zooming */}
       <div
-        className={`absolute top-2 left-2 flex gap-1 transition-opacity duration-300 ${
+        className={`absolute top-2 right-2 flex gap-1 transition-opacity duration-300 ${
           showZoomControls ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >

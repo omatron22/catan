@@ -3,7 +3,7 @@
 :root {
   --ui-bg: #2a6ab5;
   --ui-panel: #f0e6d0;
-  --ui-panel-dark: #2a5a4a;
+  --ui-panel-dark: #6b5840;
   --ui-accent: #e8a024;
   --ui-accent-hover: #d4900e;
   --ocean: #1a7ab5;
@@ -199,4 +199,14 @@ body {
 .lobby-ticker {
   display: inline-block;
   animation: lobby-ticker 60s linear infinite;
+}
+
+/* Slow spin for starburst */
+.animate-spin-slow {
+  animation: spin 20s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }

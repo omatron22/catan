@@ -248,25 +248,20 @@ export default function Home() {
       <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
         {cloudLayer}
 
-        {/* Title content */}
-        <div className="relative z-10 text-center">
+        {/* Title + play button */}
+        <div className="relative z-10 flex flex-col items-center">
           <h1
-            className="font-pixel text-[52px] text-amber-400 mb-3 tracking-wider"
-            style={{ textShadow: "4px 4px 0 #000, -1px -1px 0 #000" }}
+            className="font-pixel text-[90px] text-amber-400 mb-16 tracking-wider leading-none"
+            style={{ textShadow: "6px 6px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000" }}
           >
             ERFINDUNG
           </h1>
-          <p
-            className="font-pixel text-[9px] text-[#8BC34A] mb-12 tracking-widest"
-            style={{ textShadow: "1px 1px 0 #000" }}
-          >
-            PLAY AGAINST AI OPPONENTS
-          </p>
+
           <button
             onClick={() => setShowLobby(true)}
-            className="px-12 py-4 bg-amber-400 text-gray-900 font-pixel text-[14px] pixel-btn start-pulse"
+            className="px-14 py-5 bg-amber-400 text-gray-900 font-pixel text-[20px] pixel-btn start-pulse"
           >
-            START
+            PLAY
           </button>
         </div>
       </main>

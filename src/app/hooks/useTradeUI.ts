@@ -66,6 +66,11 @@ export function useTradeUI(
     setRequesting([]);
   }
 
+  function resetTrade() {
+    setOffering([]);
+    setRequesting([]);
+  }
+
   return {
     tradeMode,
     setTradeMode,
@@ -80,5 +85,6 @@ export function useTradeUI(
     addToRequesting,
     removeFromRequesting,
     closeTrade,
+    resetTrade,
   };
 }

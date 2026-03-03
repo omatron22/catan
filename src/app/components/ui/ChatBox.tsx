@@ -2,7 +2,13 @@
 
 import { useRef, useEffect, useState, useMemo } from "react";
 import type { GameLogEntry } from "@/shared/types/game";
-import { PLAYER_COLOR_HEX } from "@/shared/constants";
+import { PLAYER_COLOR_HEX, RESOURCE_COLORS } from "@/shared/constants";
+import type { Resource } from "@/shared/types/game";
+import {
+  HousePixel, CityPixel, RoadPixel, ScrollPixel, GhostPixel,
+  HelmetPixel, RoadBuildPixel, CornucopiaPixel, MonopolyPixel,
+  CrownPixel, DiceFacePixel, ResourcePixel,
+} from "@/app/components/icons/PixelIcons";
 
 interface Props {
   log: GameLogEntry[];
@@ -24,6 +30,151 @@ function extractRolls(log: GameLogEntry[]): number[] {
   return rolls;
 }
 
+/** Parse roll pairs (d1, d2, total) from log messages */
+function extractRollPairs(log: GameLogEntry[]): { d1: number; d2: number; total: number }[] {
+  const pairs: { d1: number; d2: number; total: number }[] = [];
+  for (const entry of log) {
+    const m = entry.message.match(/rolled\s+(\d+)\s*\+\s*(\d+)\s*=\s*(\d+)/);
+    if (m) pairs.push({ d1: parseInt(m[1], 10), d2: parseInt(m[2], 10), total: parseInt(m[3], 10) });
+  }
+  return pairs;
+}
+
+/** Dark outline for player names — ensures readability on white backgrounds */
+function nameStyle(color: string): React.CSSProperties {
+  return { color, textShadow: "-1px 0 #000, 1px 0 #000, 0 -1px #000, 0 1px #000" };
+}
+
+/** Tiny colored resource card for inline log display */
+function InlineResource({ resource, idx }: { resource: Resource; idx: number }) {
+  return (
+    <span
+      key={idx}
+      className="inline-flex items-center justify-center align-middle border border-black/40"
+      style={{
+        width: 14,
+        height: 17,
+        backgroundColor: RESOURCE_COLORS[resource],
+        marginLeft: idx > 0 ? -3 : 0,
+        boxShadow: "1px 1px 0 rgba(0,0,0,0.2)",
+        borderRadius: 1,
+      }}
+    >
+      <ResourcePixel resource={resource} size={10} color="white" />
+    </span>
+  );
+}
+
+/** Replace "N resource" or standalone "resource" in text with inline resource icons */
+function renderWithResourceIcons(text: string): React.ReactNode {
+  const regex = /(?:(\d+)\s+)?\b(brick|lumber|ore|grain|wool)\b/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const count = match[1] ? parseInt(match[1]) : 1;
+    const resource = match[2] as Resource;
+
+    if (count <= 3) {
+      for (let i = 0; i < count; i++) {
+        parts.push(<InlineResource key={`r${key}-${i}`} resource={resource} idx={i} />);
+      }
+    } else {
+      parts.push(<InlineResource key={`r${key}-0`} resource={resource} idx={0} />);
+      parts.push(<span key={`r${key}-c`} className="font-pixel text-[8px] text-gray-500 align-middle">x{count}</span>);
+    }
+    // Add a tiny spacer after each resource group
+    parts.push(<span key={`r${key}-s`} style={{ width: 2, display: "inline-block" }} />);
+    key++;
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex === 0) return text; // no matches
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return <>{parts}</>;
+}
+
+/** Noun-to-icon replacements — matched text is replaced inline by the icon */
+const ICON_SUBS: [RegExp, React.ReactNode][] = [
+  [/ a settlement/, <HousePixel size={16} color="#6b7280" />],
+  [/ a city/, <CityPixel size={16} color="#6b7280" />],
+  [/ a road/, <RoadPixel size={16} color="#6b7280" />],
+  [/ a development card/, <ScrollPixel size={16} color="#6b21a8" />],
+  [/ the robber/, <GhostPixel size={16} color="#6b7280" />],
+  [/ a knight/, <HelmetPixel size={16} color="#6b21a8" />],
+  [/ Road Building/, <RoadBuildPixel size={16} color="#6b21a8" />],
+  [/ Year of Plenty/, <CornucopiaPixel size={16} color="#6b21a8" />],
+  [/ Monopoly/, <MonopolyPixel size={16} color="#6b21a8" />],
+];
+
+/** Render action message, replacing nouns with icons and dice text with faces */
+function renderActionContent(message: string, playerName: string | null, color: string): React.ReactNode {
+  // Dice roll — replace "X + Y = Z" with dice faces
+  const rollMatch = message.match(/^(.+?) rolled (\d+) \+ (\d+) = (\d+)$/);
+  if (rollMatch) {
+    const [, name, d1, d2, totalStr] = rollMatch;
+    const total = parseInt(totalStr);
+    return (
+      <span className="inline-flex items-center gap-0.5 flex-wrap">
+        <span className="font-bold" style={nameStyle(color)}>{name}</span>
+        <DiceFacePixel value={parseInt(d1)} size={18} />
+        <DiceFacePixel value={parseInt(d2)} size={18} />
+        <span className="text-gray-500">= </span>
+        <span className="font-bold" style={{ color: total === 7 ? "#d97706" : "#374151" }}>{total}</span>
+      </span>
+    );
+  }
+
+  // Try noun → icon replacement
+  for (const [pattern, icon] of ICON_SUBS) {
+    const m = message.match(pattern);
+    if (m && m.index !== undefined) {
+      const before = message.slice(0, m.index);
+      const after = message.slice(m.index + m[0].length);
+      const nameEnd = playerName && before.startsWith(playerName) ? playerName.length : 0;
+      return (
+        <>
+          {nameEnd > 0 && <span className="font-bold" style={nameStyle(color)}>{playerName}</span>}
+          {nameEnd > 0 ? (
+            <span className="text-gray-500">{before.slice(nameEnd)}</span>
+          ) : (
+            <span style={nameStyle(color)}>{before}</span>
+          )}
+          <span className="inline-block align-middle mx-0.5">{icon}</span>
+          {after && <span className="text-gray-500">{renderWithResourceIcons(after)}</span>}
+        </>
+      );
+    }
+  }
+
+  // "wins with" — keep text, append crown
+  if (/wins with/i.test(message) && playerName && message.startsWith(playerName)) {
+    return (
+      <>
+        <span className="font-bold" style={nameStyle(color)}>{playerName}</span>
+        <span className="text-gray-500">{renderWithResourceIcons(message.slice(playerName.length))}</span>
+        <span className="inline-block ml-1 align-middle"><CrownPixel size={16} color="#d97706" /></span>
+      </>
+    );
+  }
+
+  // Default — replace resource names with icons
+  if (playerName && message.startsWith(playerName)) {
+    return (
+      <>
+        <span className="font-bold" style={nameStyle(color)}>{playerName}</span>
+        <span className="text-gray-500">{renderWithResourceIcons(message.slice(playerName.length))}</span>
+      </>
+    );
+  }
+  return <span style={nameStyle(color)}>{renderWithResourceIcons(message)}</span>;
+}
+
 export default function ChatBox({ log, playerColors, playerNames, localPlayerIndex, onSendChat }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState("");
@@ -35,6 +186,7 @@ export default function ChatBox({ log, playerColors, playerNames, localPlayerInd
   const entries = activeTab === "chat" ? chatEntries : logEntries;
 
   const rolls = useMemo(() => extractRolls(log), [log]);
+  const rollPairs = useMemo(() => extractRollPairs(log), [log]);
 
   useEffect(() => {
     if (activeTab !== "stats") {
@@ -87,7 +239,7 @@ export default function ChatBox({ log, playerColors, playerNames, localPlayerInd
 
       {/* Content area */}
       {activeTab === "stats" ? (
-        <StatsPanel rolls={rolls} />
+        <StatsPanel rolls={rolls} rollPairs={rollPairs} />
       ) : (
         <>
           {/* Messages area */}
@@ -128,7 +280,7 @@ export default function ChatBox({ log, playerColors, playerNames, localPlayerInd
                   <div key={i}>
                     {turnSeparator}
                     <div className="mb-1 text-[10px]">
-                      <span className="font-bold font-pixel text-[9px]" style={{ color }}>{name}: </span>
+                      <span className="font-bold font-pixel text-[9px]" style={nameStyle(color)}>{name}: </span>
                       <span className="text-gray-700">{entry.message}</span>
                     </div>
                   </div>
@@ -150,25 +302,13 @@ export default function ChatBox({ log, playerColors, playerNames, localPlayerInd
               const color = entry.playerIndex !== null
                 ? PLAYER_COLOR_HEX[playerColors[entry.playerIndex]]
                 : "#9ca3af";
-
               const playerName = entry.playerIndex !== null ? playerNames[entry.playerIndex] : null;
-              let actionContent: React.ReactNode;
-              if (playerName && entry.message.startsWith(playerName)) {
-                actionContent = (
-                  <>
-                    <span className="font-bold" style={{ color }}>{playerName}</span>
-                    <span className="text-gray-500">{entry.message.slice(playerName.length)}</span>
-                  </>
-                );
-              } else {
-                actionContent = <span style={{ color }}>{entry.message}</span>;
-              }
 
               return (
                 <div key={i}>
                   {turnSeparator}
                   <div className="mb-0.5 text-[10px]">
-                    {actionContent}
+                    {renderActionContent(entry.message, playerName, color)}
                   </div>
                 </div>
               );
@@ -213,8 +353,8 @@ function barColor(n: number): string {
   return "#9ca3af";
 }
 
-/** Full-space dice stats with horizontal bars and probabilities */
-function StatsPanel({ rolls }: { rolls: number[] }) {
+/** Consolidated dice stats with histogram, luck label, DUE indicators, roll history, and summary */
+function StatsPanel({ rolls, rollPairs }: { rolls: number[]; rollPairs: { d1: number; d2: number; total: number }[] }) {
   const counts: Record<number, number> = {};
   for (let i = 2; i <= 12; i++) counts[i] = 0;
   for (const r of rolls) {
@@ -224,10 +364,65 @@ function StatsPanel({ rolls }: { rolls: number[] }) {
   const maxCount = Math.max(1, ...Object.values(counts));
   const totalRolls = rolls.length;
 
+  // Track rolls since each number was last seen
+  const rollsSinceLast: Record<number, number> = {};
+  for (let n = 2; n <= 12; n++) {
+    let last = -1;
+    for (let i = rolls.length - 1; i >= 0; i--) {
+      if (rolls[i] === n) { last = i; break; }
+    }
+    rollsSinceLast[n] = last === -1 ? totalRolls : totalRolls - 1 - last;
+  }
+
+  // Chi-squared goodness of fit
+  let chi2 = 0;
+  if (totalRolls > 0) {
+    for (let n = 2; n <= 12; n++) {
+      const expected = totalRolls * DICE_WAYS[n] / 36;
+      chi2 += (counts[n] - expected) ** 2 / expected;
+    }
+  }
+
+  let luckLabel: { text: string; color: string } | null = null;
+  if (totalRolls >= 10) {
+    if (chi2 >= 23.21) luckLabel = { text: "WILD DICE", color: "#dc2626" };
+    else if (chi2 >= 15.99) luckLabel = { text: "STREAKY", color: "#d97706" };
+    else luckLabel = { text: "NORMAL", color: "#16a34a" };
+  }
+
+  // Current trailing streak (same number repeated at end)
+  let currentStreak = 0;
+  let streakNumber = 0;
+  if (rolls.length > 0) {
+    streakNumber = rolls[rolls.length - 1];
+    for (let i = rolls.length - 1; i >= 0 && rolls[i] === streakNumber; i--) {
+      currentStreak++;
+    }
+  }
+  const streakProb = currentStreak >= 2
+    ? Math.pow(DICE_WAYS[streakNumber] / 36, currentStreak) * 100
+    : 0;
+
+  // Notable droughts — P(number not appearing for d rolls)
+  const notableDroughts: { n: number; d: number; prob: number }[] = [];
+  for (let n = 2; n <= 12; n++) {
+    const d = rollsSinceLast[n];
+    if (d >= 3) {
+      const prob = Math.pow(1 - DICE_WAYS[n] / 36, d) * 100;
+      if (prob < 20) notableDroughts.push({ n, d, prob });
+    }
+  }
+  notableDroughts.sort((a, b) => a.prob - b.prob);
+
   return (
     <div className="flex-1 overflow-y-auto px-3 py-3 bg-white" style={{ minHeight: 0 }}>
       <div className="font-pixel text-[8px] text-gray-400 mb-3 text-center">
         DICE STATS — {totalRolls} ROLL{totalRolls !== 1 ? "S" : ""}
+        {luckLabel && (
+          <span className="ml-2 px-1.5 py-0.5 border border-current font-bold" style={{ color: luckLabel.color }}>
+            {luckLabel.text}
+          </span>
+        )}
       </div>
 
       {totalRolls === 0 ? (
@@ -241,28 +436,31 @@ function StatsPanel({ rolls }: { rolls: number[] }) {
             const pct = totalRolls > 0 ? (count / totalRolls) * 100 : 0;
             const expectedPct = (DICE_WAYS[n] / 36) * 100;
             const widthPct = (count / maxCount) * 100;
-            // How "hot" or "cold" vs expected
             const diff = pct - expectedPct;
             const hot = diff > 3;
             const cold = diff < -3;
+            // DUE indicator
+            const expectedInterval = 36 / DICE_WAYS[n];
+            const isDue = totalRolls >= 6 && rollsSinceLast[n] > 1.5 * expectedInterval;
 
             return (
-              <div key={n} className="flex items-center gap-1" style={{ height: 18 }}>
+              <div key={n} className="flex items-center gap-1" style={{ height: 20 }}>
                 {/* Number label */}
-                <div
-                  className="font-pixel text-[9px] w-5 text-right flex-shrink-0"
-                  style={{ color: barColor(n) }}
-                >
+                <div className="font-pixel text-[9px] w-5 text-right flex-shrink-0" style={{ color: barColor(n) }}>
                   {n}
                 </div>
 
                 {/* Bar */}
                 <div className="flex-1 h-full flex items-center relative">
-                  {/* Expected marker */}
+                  {/* Expected marker — solid semi-transparent line */}
                   {totalRolls >= 4 && (
                     <div
-                      className="absolute top-0 bottom-0 border-r border-dashed border-gray-300"
-                      style={{ left: `${((DICE_WAYS[n] / 36) * totalRolls / maxCount) * 100}%` }}
+                      className="absolute top-0 bottom-0"
+                      style={{
+                        left: `${((DICE_WAYS[n] / 36) * totalRolls / maxCount) * 100}%`,
+                        width: 2,
+                        backgroundColor: "rgba(0,0,0,0.2)",
+                      }}
                     />
                   )}
                   <div
@@ -282,14 +480,14 @@ function StatsPanel({ rolls }: { rolls: number[] }) {
                   {count}
                 </div>
 
-                {/* Actual % */}
-                <div className="font-pixel text-[7px] text-gray-500 w-8 text-right flex-shrink-0">
-                  {pct.toFixed(0)}%
+                {/* Actual % (expected %) */}
+                <div className="font-pixel text-[7px] text-gray-500 w-14 text-right flex-shrink-0">
+                  {pct.toFixed(0)}%<span className="text-gray-300">({expectedPct.toFixed(0)}%)</span>
                 </div>
 
-                {/* Hot/cold indicator */}
-                <div className="font-pixel text-[7px] w-3 flex-shrink-0 text-center">
-                  {hot ? <span style={{ color: "#dc2626" }}>↑</span> : cold ? <span style={{ color: "#2563eb" }}>↓</span> : ""}
+                {/* Hot/cold/due indicator */}
+                <div className="font-pixel text-[7px] w-6 flex-shrink-0 text-center">
+                  {isDue ? <span style={{ color: "#d97706" }}>DUE</span> : hot ? <span style={{ color: "#dc2626" }}>↑</span> : cold ? <span style={{ color: "#2563eb" }}>↓</span> : ""}
                 </div>
               </div>
             );
@@ -297,51 +495,95 @@ function StatsPanel({ rolls }: { rolls: number[] }) {
         </div>
       )}
 
-      {/* Legend */}
-      {totalRolls > 0 && (
-        <div className="mt-3 pt-2 border-t border-gray-200">
-          <div className="flex items-center gap-3 justify-center">
-            <div className="flex items-center gap-1">
-              <span className="font-pixel text-[7px] text-red-600">↑</span>
-              <span className="font-pixel text-[5px] text-gray-400">HOT</span>
+      {/* Notable streaks & droughts */}
+      {totalRolls >= 4 && (currentStreak >= 2 || notableDroughts.length > 0) && (
+        <div className="mt-2 pt-2 border-t border-gray-200 px-1">
+          <div className="font-pixel text-[7px] text-gray-400 mb-1 text-center">NOTABLE</div>
+          {currentStreak >= 2 && (
+            <div className="font-pixel text-[7px] mb-0.5" style={{ color: "#dc2626" }}>
+              {streakNumber} rolled {currentStreak}x in a row ({streakProb < 0.1 ? "<0.1" : streakProb.toFixed(1)}% odds)
             </div>
-            <div className="flex items-center gap-1">
-              <span className="font-pixel text-[7px] text-blue-600">↓</span>
-              <span className="font-pixel text-[5px] text-gray-400">COLD</span>
+          )}
+          {notableDroughts.slice(0, 3).map(({ n, d, prob }) => (
+            <div key={n} className="font-pixel text-[7px] mb-0.5" style={{ color: "#2563eb" }}>
+              {n} absent for {d} rolls ({prob.toFixed(1)}% odds)
             </div>
+          ))}
+        </div>
+      )}
+
+      {/* Roll History — mini dice faces */}
+      {rollPairs.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-200 px-1">
+          <div className="font-pixel text-[7px] text-gray-400 mb-1.5 text-center">ROLL HISTORY</div>
+          <div className="flex flex-wrap gap-1">
+            {rollPairs.slice(-20).map((pair, i) => {
+              const isLatest = i === rollPairs.slice(-20).length - 1;
+              return (
+                <div
+                  key={i}
+                  className="flex gap-px p-0.5"
+                  style={{
+                    backgroundColor: barColor(pair.total) + "20",
+                    border: isLatest ? `2px solid ${barColor(pair.total)}` : "1px solid rgba(0,0,0,0.1)",
+                  }}
+                >
+                  <DiceFacePixel value={pair.d1} size={12} />
+                  <DiceFacePixel value={pair.d2} size={12} />
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Probability reference */}
-      <div className="mt-3 pt-2 border-t border-gray-200">
-        <div className="font-pixel text-[7px] text-gray-400 mb-1.5 text-center">ODDS PER ROLL</div>
-        <div className="flex flex-col gap-[1px]">
-          {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => {
-            const ways = DICE_WAYS[n];
-            const pct = (ways / 36) * 100;
-            return (
-              <div key={n} className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <span className="font-pixel text-[7px] w-4 text-right" style={{ color: barColor(n) }}>{n}</span>
-                  <span className="font-pixel text-[6px] text-gray-400">{ways}/36</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div
-                    className="h-1.5"
-                    style={{
-                      width: `${(pct / 16.7) * 40}px`,
-                      backgroundColor: barColor(n),
-                      opacity: 0.4,
-                    }}
-                  />
-                  <span className="font-pixel text-[6px] text-gray-500 w-8 text-right">{pct.toFixed(1)}%</span>
-                </div>
+      {/* Summary Stats */}
+      {totalRolls > 0 && (() => {
+        const avg = rolls.reduce((s, r) => s + r, 0) / totalRolls;
+        let mostNum = 2, mostCount = counts[2];
+        let leastNum = 0, leastCount = Infinity;
+        for (let n = 2; n <= 12; n++) {
+          if (counts[n] > mostCount) { mostNum = n; mostCount = counts[n]; }
+          if (counts[n] < leastCount && (totalRolls < 20 || counts[n] > 0)) { leastNum = n; leastCount = counts[n]; }
+        }
+        if (leastNum === 0) { leastNum = 2; leastCount = counts[2]; }
+        return (
+          <div className="mt-2 pt-2 border-t border-gray-200 px-1">
+            <div className="font-pixel text-[7px] text-gray-400 mb-1 text-center">SUMMARY</div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-pixel text-[8px]">
+              <div className="text-gray-500">AVG ROLL</div>
+              <div className="text-right">
+                <span className="text-gray-700">{avg.toFixed(1)}</span>
+                <span className="text-gray-400 ml-1">/ 7.0</span>
               </div>
-            );
-          })}
+              <div className="text-gray-500">MOST</div>
+              <div className="text-right">
+                <span style={{ color: barColor(mostNum) }}>{mostNum}</span>
+                <span className="text-gray-400 ml-1">×{mostCount}</span>
+              </div>
+              <div className="text-gray-500">LEAST</div>
+              <div className="text-right">
+                <span style={{ color: barColor(leastNum) }}>{leastNum}</span>
+                <span className="text-gray-400 ml-1">×{leastCount}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Explanation */}
+      {totalRolls > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-200 px-1">
+          <div className="font-pixel text-[6px] text-gray-400 leading-relaxed space-y-0.5">
+            <div>
+              <span style={{ color: "#dc2626" }}>↑</span> hot &nbsp;
+              <span style={{ color: "#2563eb" }}>↓</span> cold &nbsp;
+              <span style={{ color: "#d97706" }}>DUE</span> overdue &nbsp;
+              <span className="text-gray-300">|</span> = expected
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

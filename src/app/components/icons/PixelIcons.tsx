@@ -326,3 +326,27 @@ export function CheckPixel({ size = 24, color = "#22c55e" }: PxProps) {
 export function XMarkPixel({ size = 24, color = "#ef4444" }: PxProps) {
   return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="pixel-icon">{renderPixels(XMARK_PATTERN, color, size)}</svg>;
 }
+
+// ── DICE FACE ──
+
+/** Pixel-art dice face with pips */
+export function DiceFacePixel({ value, size = 16, pipColor = "#1a1a1a", bgColor = "#f5f0e0" }: { value: number; size?: number; pipColor?: string; bgColor?: string }) {
+  const PIP_POS: Record<number, [number, number][]> = {
+    1: [[3, 3]],
+    2: [[5, 1], [1, 5]],
+    3: [[5, 1], [3, 3], [1, 5]],
+    4: [[1, 1], [5, 1], [1, 5], [5, 5]],
+    5: [[1, 1], [5, 1], [3, 3], [1, 5], [5, 5]],
+    6: [[1, 1], [5, 1], [1, 3], [5, 3], [1, 5], [5, 5]],
+  };
+  const pips = PIP_POS[value] || [];
+  return (
+    <svg width={size} height={size} viewBox="0 0 8 8" className="pixel-icon" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <rect x={0} y={0} width={8} height={8} fill="#333" />
+      <rect x={0.5} y={0.5} width={7} height={7} fill={bgColor} />
+      {pips.map(([x, y], i) => (
+        <rect key={i} x={x} y={y} width={2} height={2} fill={pipColor} />
+      ))}
+    </svg>
+  );
+}

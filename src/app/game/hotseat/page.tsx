@@ -333,7 +333,7 @@ export default function GamePage() {
               if (acceptors.length === 0 && !hasCounters) shouldAutoCancel = true;
               return { ...prev, resolved: true, acceptors };
             });
-            if (shouldAutoCancel) setTimeout(() => cancelPendingTrade(tradeState, trade.id), 800);
+            if (shouldAutoCancel) setTimeout(() => cancelPendingTrade(tradeState, trade.id, true), 1200);
           }, 600);
         }
       }, delay);
@@ -341,11 +341,15 @@ export default function GamePage() {
     });
   }
 
-  function cancelPendingTrade(tradeState: GameState, tradeId: string) {
+  function cancelPendingTrade(tradeState: GameState, tradeId: string, keepTradeOpen?: boolean) {
     const result = applyAction(tradeState, { type: "cancel-trade", playerIndex: HUMAN_PLAYER_INDEX, tradeId });
     if (result.valid && result.newState) { playError(); setGameState(result.newState); }
     setPendingTradeUI(null);
-    gameViewRef.current?.closeTrade();
+    if (keepTradeOpen) {
+      gameViewRef.current?.resetTrade();
+    } else {
+      gameViewRef.current?.closeTrade();
+    }
   }
 
   function acceptTradeWith(botIndex: number) {
@@ -466,12 +470,19 @@ export default function GamePage() {
   }
 
   // Trade response overlay (hotseat-only)
+  const noDeals = pendingTradeUI?.resolved &&
+    pendingTradeUI.acceptors.length === 0 &&
+    !Object.values(pendingTradeUI.counterOffers).some((c) => c != null);
+
   const tradeOverlayNode = pendingTradeUI && gameState.pendingTrade ? (
     <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-3 py-2 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
       <div className="flex items-center gap-3">
         <span className="font-pixel text-[8px] text-gray-700">
-          {pendingTradeUI.resolved ? "CHOOSE:" : "WAITING..."}
+          {!pendingTradeUI.resolved ? "WAITING..." : noDeals ? "" : "CHOOSE:"}
         </span>
+        {noDeals && (
+          <span className="font-pixel text-[9px] text-red-600 font-bold animate-pulse">NO DEALS</span>
+        )}
         <div className="flex gap-2">
           {Object.entries(pendingTradeUI.responses).map(([idxStr, status]) => {
             const idx = Number(idxStr);
@@ -508,9 +519,12 @@ export default function GamePage() {
                 )}
                 {isAcceptor && (
                   <div className="flex gap-1 items-center">
-                    <CheckPixel size={14} color="#16a34a" />
-                    <button onClick={() => acceptTradeWith(idx)} className="px-2 py-0.5 bg-green-600 text-white font-pixel text-[7px] border border-black hover:bg-green-500">TRADE</button>
-                    <button onClick={() => declineAcceptor(idx)} className="px-2 py-0.5 bg-red-700 text-white font-pixel text-[7px] border border-black hover:bg-red-600">DECLINE</button>
+                    <button onClick={() => acceptTradeWith(idx)} className="p-0.5 hover:bg-green-100 rounded" title="Accept trade">
+                      <CheckPixel size={16} color="#16a34a" />
+                    </button>
+                    <button onClick={() => declineAcceptor(idx)} className="p-0.5 hover:bg-red-100 rounded" title="Decline">
+                      <XMarkPixel size={16} color="#dc2626" />
+                    </button>
                   </div>
                 )}
                 {status === "accepted" && !pendingTradeUI.resolved && <CheckPixel size={14} color="#16a34a" />}
@@ -518,9 +532,6 @@ export default function GamePage() {
             );
           })}
         </div>
-        {pendingTradeUI.resolved && (
-          <button onClick={declineAllTrades} className="px-2 py-1 bg-red-700 text-white font-pixel text-[7px] pixel-btn hover:bg-red-600">DECLINE ALL</button>
-        )}
       </div>
     </div>
   ) : null;

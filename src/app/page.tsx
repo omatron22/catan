@@ -61,8 +61,6 @@ export default function Home() {
     }
     return false;
   });
-  const [showOnlineLobby, setShowOnlineLobby] = useState(false);
-  const [onlineName, setOnlineName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [creating, setCreating] = useState(false);
   const { socket, connected } = useSocket();
@@ -213,15 +211,17 @@ export default function Home() {
   }, [socket, router, mpStore]);
 
   function createRoom() {
-    if (!socket || !connected || !onlineName.trim()) return;
+    const name = players[0].name.trim() || "Player";
+    if (!socket || !connected) return;
     setCreating(true);
-    socket.emit("room:join", { roomCode: "", playerName: onlineName.trim() });
+    socket.emit("room:join", { roomCode: "", playerName: name });
   }
 
   function joinRoom() {
-    if (!socket || !connected || !onlineName.trim() || !joinCode.trim()) return;
+    const name = players[0].name.trim() || "Player";
+    if (!socket || !connected || !joinCode.trim()) return;
     setCreating(true);
-    socket.emit("room:join", { roomCode: joinCode.trim().toUpperCase(), playerName: onlineName.trim() });
+    socket.emit("room:join", { roomCode: joinCode.trim().toUpperCase(), playerName: name });
   }
 
   const cloudLayer = (
@@ -243,7 +243,7 @@ export default function Home() {
     </>
   );
 
-  if (!showLobby && !showOnlineLobby) {
+  if (!showLobby) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
         {cloudLayer}
@@ -262,102 +262,12 @@ export default function Home() {
           >
             PLAY AGAINST AI OPPONENTS
           </p>
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => setShowLobby(true)}
-              className="px-12 py-4 bg-amber-400 text-gray-900 font-pixel text-[14px] pixel-btn start-pulse"
-            >
-              START
-            </button>
-            <button
-              onClick={() => setShowOnlineLobby(true)}
-              className="px-12 py-3 bg-[#4CAF50] text-white font-pixel text-[11px] pixel-btn"
-            >
-              PLAY ONLINE
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // Online lobby — create or join a room
-  if (showOnlineLobby) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
-        {cloudLayer}
-
-        <div className="relative z-10 w-80">
-          <div className="bg-[#f0e6d0] pixel-border p-6 relative">
-            <button
-              onClick={() => { setShowOnlineLobby(false); mpStore.setError(null); }}
-              className="absolute top-2 left-2 font-pixel text-[8px] text-gray-500 hover:text-gray-800"
-              title="Back to menu"
-            >
-              &larr; BACK
-            </button>
-            <h2
-              className="font-pixel text-[16px] text-amber-400 mb-4 text-center"
-              style={{ textShadow: "2px 2px 0 #000" }}
-            >
-              PLAY ONLINE
-            </h2>
-
-            <label className="font-pixel text-[8px] text-gray-600 block mb-1">YOUR NAME</label>
-            <input
-              type="text"
-              value={onlineName}
-              onChange={(e) => setOnlineName(e.target.value)}
-              placeholder="Enter your name..."
-              maxLength={20}
-              className="w-full bg-white px-3 py-2 text-[11px] text-gray-800 border-2 border-black focus:outline-none mb-4"
-              autoFocus
-            />
-
-            {!connected && (
-              <p className="font-pixel text-[7px] text-gray-500 mb-3 text-center">
-                Connecting to server...
-              </p>
-            )}
-
-            {mpStore.error && (
-              <p className="font-pixel text-[7px] text-red-600 mb-3 text-center">{mpStore.error}</p>
-            )}
-
-            <button
-              onClick={createRoom}
-              disabled={!connected || !onlineName.trim() || creating}
-              className="w-full py-3 bg-amber-400 text-gray-900 font-pixel text-[11px] pixel-btn disabled:opacity-50 mb-3"
-            >
-              {creating ? "CREATING..." : "CREATE ROOM"}
-            </button>
-
-            <div className="flex items-center gap-2 mb-3">
-              <div className="flex-1 h-[2px] bg-gray-400" />
-              <span className="font-pixel text-[7px] text-gray-500">OR JOIN</span>
-              <div className="flex-1 h-[2px] bg-gray-400" />
-            </div>
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === "Enter" && joinRoom()}
-                placeholder="ROOM CODE"
-                maxLength={4}
-                className="flex-1 bg-white px-3 py-2 text-[12px] text-gray-800 border-2 border-black focus:outline-none font-pixel text-center tracking-widest uppercase"
-              />
-              <button
-                onClick={joinRoom}
-                disabled={!connected || !onlineName.trim() || !joinCode.trim() || creating}
-                className="px-4 py-2 bg-[#4CAF50] text-white font-pixel text-[9px] pixel-btn disabled:opacity-50"
-              >
-                JOIN
-              </button>
-            </div>
-
-          </div>
+          <button
+            onClick={() => setShowLobby(true)}
+            className="px-12 py-4 bg-amber-400 text-gray-900 font-pixel text-[14px] pixel-btn start-pulse"
+          >
+            START
+          </button>
         </div>
       </main>
     );
@@ -385,38 +295,17 @@ export default function Home() {
         &larr; BACK
       </button>
 
-      {/* Fun facts ticker across the top */}
-      <div className="relative z-10 w-full py-2 overflow-hidden">
-        <div className="lobby-ticker whitespace-nowrap font-pixel text-[8px] text-amber-300/70">
-          <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
-          <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
-          <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
-          <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
-          <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
-          <span className="mx-8">A single grain harvest could feed a village for an entire winter</span>
-          <span className="mx-8">Knights trained from age 7 as pages before earning their spurs</span>
-          <span className="mx-8">Medieval lumber was so valuable that forests had armed guards</span>
-          <span className="mx-8">The largest medieval army ever assembled had 100,000 soldiers</span>
-          <span className="mx-8">Sheep outnumbered people 3 to 1 in 13th century England</span>
-          <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
-          <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
-          <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
-          <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
-          <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
-        </div>
-      </div>
-
       {/* Main 3-column layout */}
-      <div className="relative z-10 flex flex-1 min-h-0 items-start px-0">
+      <div className="relative z-10 flex flex-1 min-h-0 items-center px-0">
         {/* ===== LEFT — Players ===== */}
-        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 mt-4">
+        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 flex flex-col h-[440px]">
           <div className="px-4 pt-3 pb-2">
             <h2 className="font-pixel text-[9px] text-gray-700">
               PLAYERS ({players.length}/{isExpansion ? 6 : 4})
             </h2>
           </div>
 
-          <div className="px-4 space-y-2 overflow-y-auto max-h-[50vh]">
+          <div className="px-4 space-y-2 overflow-y-auto flex-1">
             {players.map((player, idx) => (
               <div key={idx} className="relative">
                 <div className="flex items-center gap-2 bg-[#e8d8b8] px-2 py-1.5 border-2 border-black">
@@ -656,11 +545,16 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Validation error + Start Game at bottom */}
+          {/* Validation error + Start Game + Online at bottom */}
           <div className="max-w-xl mx-auto w-full pt-2">
             {validationError && (
               <div className="bg-red-100 pixel-border-sm px-3 py-2 text-center mb-2">
                 <p className="font-pixel text-[8px] text-red-700">{validationError}</p>
+              </div>
+            )}
+            {mpStore.error && (
+              <div className="bg-red-100 pixel-border-sm px-3 py-2 text-center mb-2">
+                <p className="font-pixel text-[8px] text-red-700">{mpStore.error}</p>
               </div>
             )}
             <button
@@ -669,17 +563,50 @@ export default function Home() {
             >
               START GAME
             </button>
+
+            {/* Online section */}
+            <div className="flex items-center gap-2 my-3">
+              <div className="flex-1 h-[2px] bg-white/30" />
+              <span className="font-pixel text-[8px] text-white/60">OR PLAY ONLINE</span>
+              <div className="flex-1 h-[2px] bg-white/30" />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={createRoom}
+                disabled={!connected || !(players[0].name.trim()) || creating}
+                className="flex-1 py-3 bg-[#4CAF50] text-white font-pixel text-[10px] pixel-btn disabled:opacity-50"
+              >
+                {creating ? "CREATING..." : "CREATE ROOM"}
+              </button>
+              <input
+                type="text"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === "Enter" && joinRoom()}
+                placeholder="CODE"
+                maxLength={4}
+                className="w-20 bg-white px-2 py-2 text-[11px] text-gray-800 border-2 border-black focus:outline-none font-pixel text-center tracking-widest uppercase"
+              />
+              <button
+                onClick={joinRoom}
+                disabled={!connected || !(players[0].name.trim()) || !joinCode.trim() || creating}
+                className="px-4 py-2 bg-[#4CAF50] text-white font-pixel text-[9px] pixel-btn disabled:opacity-50"
+              >
+                JOIN
+              </button>
+            </div>
+            {!connected && <p className="font-pixel text-[7px] text-white/50 text-center mt-1">Connecting to server...</p>}
           </div>
         </div>
 
         {/* ===== RIGHT — Chat ===== */}
-        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 mt-4 flex flex-col">
+        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 flex flex-col h-[440px]">
           <div className="px-4 pt-3 pb-2">
             <h2 className="font-pixel text-[9px] text-gray-700 text-center">CHAT</h2>
           </div>
 
           {/* Messages area */}
-          <div className="mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll min-h-[120px] max-h-[40vh]">
+          <div className="mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll flex-1">
             {chatMessages.length === 0 ? (
               <p className="font-pixel text-[7px] text-gray-400 text-center mt-4">No messages yet...</p>
             ) : (
@@ -711,6 +638,27 @@ export default function Home() {
               &gt;
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Fun facts ticker at the bottom */}
+      <div className="relative z-10 w-full py-2 overflow-hidden">
+        <div className="lobby-ticker whitespace-nowrap font-pixel text-[10px] text-amber-300/70">
+          <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
+          <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
+          <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
+          <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
+          <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
+          <span className="mx-8">A single grain harvest could feed a village for an entire winter</span>
+          <span className="mx-8">Knights trained from age 7 as pages before earning their spurs</span>
+          <span className="mx-8">Medieval lumber was so valuable that forests had armed guards</span>
+          <span className="mx-8">The largest medieval army ever assembled had 100,000 soldiers</span>
+          <span className="mx-8">Sheep outnumbered people 3 to 1 in 13th century England</span>
+          <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
+          <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
+          <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
+          <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
+          <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
         </div>
       </div>
     </main>

@@ -231,37 +231,23 @@ export default function OnlineGamePage() {
           &larr; LEAVE
         </button>
 
-        {/* Fun facts ticker + room code */}
-        <div className="relative z-10 w-full py-2 overflow-hidden">
-          <div className="flex items-center justify-center gap-3 mb-1">
+        {/* Room code header */}
+        <div className="relative z-10 w-full pt-10 pb-2">
+          <div className="flex items-center justify-center gap-3">
             <span className="font-pixel text-[10px] text-white/70">ROOM CODE</span>
             <span className="font-pixel text-[20px] text-amber-300 tracking-[0.3em]" style={{ textShadow: "2px 2px 0 #000" }}>{roomCode}</span>
             <button onClick={() => navigator.clipboard.writeText(shareUrl)} className="px-3 py-1 bg-white/20 border-2 border-white/40 font-pixel text-[7px] text-white hover:bg-white/30 transition-colors" title="Copy invite link">COPY LINK</button>
           </div>
-          <div className="lobby-ticker whitespace-nowrap font-pixel text-[7px] text-amber-300/60">
-            <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
-            <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
-            <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
-            <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
-            <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
-            <span className="mx-8">A single grain harvest could feed a village for an entire winter</span>
-            <span className="mx-8">Knights trained from age 7 as pages before earning their spurs</span>
-            <span className="mx-8">Medieval lumber was so valuable that forests had armed guards</span>
-            <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
-            <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
-            <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
-            <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
-          </div>
         </div>
 
         {/* Main 3-column layout */}
-        <div className="relative z-10 flex flex-1 min-h-0 items-start px-0">
+        <div className="relative z-10 flex flex-1 min-h-0 items-center px-0">
           {/* LEFT — Players */}
-          <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 mt-4">
+          <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 flex flex-col h-[440px]">
             <div className="px-4 pt-3 pb-2">
               <h2 className="font-pixel text-[9px] text-gray-700">PLAYERS ({lobbyPlayers.length}/{isExpansion ? 6 : 4})</h2>
             </div>
-            <div className="px-4 space-y-2 overflow-y-auto max-h-[50vh]">
+            <div className="px-4 space-y-2 overflow-y-auto flex-1">
               {lobbyPlayers.map((player) => {
                 const isMe = player.index === myPlayerIndex;
                 const canEditBot = isHost && player.isBot;
@@ -426,11 +412,11 @@ export default function OnlineGamePage() {
           </div>
 
           {/* RIGHT — Chat */}
-          <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 mt-4 flex flex-col">
+          <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 flex flex-col h-[440px]">
             <div className="px-4 pt-3 pb-2">
               <h2 className="font-pixel text-[9px] text-gray-700 text-center">CHAT</h2>
             </div>
-            <div className="mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll min-h-[120px] max-h-[40vh]">
+            <div className="mx-4 bg-[#e8d8b8] border-2 border-black p-2 overflow-y-auto game-log-scroll flex-1">
               {chatMessages.length === 0 ? (
                 <p className="font-pixel text-[7px] text-gray-400 text-center mt-4">No messages yet...</p>
               ) : (
@@ -445,6 +431,24 @@ export default function OnlineGamePage() {
               <input type="text" value={lobbyChatInput} onChange={(e) => setLobbyChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendLobbyChat()} placeholder="Send a message..." className="flex-1 bg-white px-2 py-1 text-[9px] text-gray-800 border-2 border-black focus:outline-none min-w-0" />
               <button onClick={sendLobbyChat} className="px-2 py-1 bg-amber-400 border-2 border-black font-pixel text-[8px] hover:bg-amber-500">&gt;</button>
             </div>
+          </div>
+        </div>
+
+        {/* Fun facts ticker at the bottom */}
+        <div className="relative z-10 w-full py-2 overflow-hidden">
+          <div className="lobby-ticker whitespace-nowrap font-pixel text-[10px] text-amber-300/60">
+            <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
+            <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
+            <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
+            <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
+            <span className="mx-8">Iron ore was called &quot;the bones of the earth&quot; by Saxon miners</span>
+            <span className="mx-8">A single grain harvest could feed a village for an entire winter</span>
+            <span className="mx-8">Knights trained from age 7 as pages before earning their spurs</span>
+            <span className="mx-8">Medieval lumber was so valuable that forests had armed guards</span>
+            <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
+            <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>
+            <span className="mx-8">The longest road in the Roman Empire stretched 3,700 miles</span>
+            <span className="mx-8">Medieval bricks were often stamped with the maker&apos;s seal</span>
           </div>
         </div>
       </div>

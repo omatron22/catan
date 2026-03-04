@@ -235,7 +235,7 @@ export default function Home() {
 
   if (!showLobby) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative px-4">
+      <main className="min-h-safe-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative px-4">
         <CloudLayer />
 
         {/* Audio controls */}
@@ -272,7 +272,7 @@ export default function Home() {
   const vpIdx = VP_OPTIONS.indexOf(customVp as (typeof VP_OPTIONS)[number]);
 
   return (
-    <main className="h-screen flex flex-col bg-[#2a6ab5] overflow-hidden relative">
+    <main className="h-safe-screen flex flex-col bg-[#2a6ab5] overflow-hidden relative">
       <CloudLayer />
 
       <button

@@ -68,7 +68,7 @@ export default function JoinPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] px-4">
+    <main className="min-h-safe-screen flex items-center justify-center bg-[#2a6ab5] px-4">
       <div className="bg-[#f0e6d0] pixel-border p-6 md:p-8 w-full max-w-80 text-center relative">
         <button
           onClick={() => router.push("/")}

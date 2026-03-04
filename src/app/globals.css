@@ -15,6 +15,17 @@ body {
   font-family: var(--font-pixel), monospace;
 }
 
+/* Safe viewport height — uses dvh (accounts for mobile browser chrome) with vh fallback */
+.h-safe-screen {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.min-h-safe-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 /* Pixel border utilities */
 .pixel-border {
   box-shadow: 3px 3px 0 #000;

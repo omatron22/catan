@@ -240,7 +240,7 @@ export default function OnlineGamePage() {
   // Waiting for room data (store propagating from home page navigation)
   if (!roomCode || myPlayerIndex === null) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#2a6ab5] relative">
+      <div className="h-safe-screen flex items-center justify-center bg-[#2a6ab5] relative">
         <button
           onClick={() => router.push("/")}
           className="absolute top-4 left-4 z-20 font-pixel text-[9px] text-white/70 hover:text-white"
@@ -262,7 +262,7 @@ export default function OnlineGamePage() {
     const vpIdx = lobbyConfig ? (VP_OPTIONS as readonly number[]).indexOf(lobbyConfig.vpToWin) : 7;
 
     return (
-      <div className="h-screen flex flex-col bg-[#2a6ab5] overflow-hidden relative">
+      <div className="h-safe-screen flex flex-col bg-[#2a6ab5] overflow-hidden relative">
         <CloudLayer />
         <button
           onClick={handleLeaveGame}

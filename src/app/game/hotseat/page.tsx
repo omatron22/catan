@@ -636,7 +636,7 @@ export default function GamePage() {
   // === RENDER ===
   if (!gameState) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#2a6ab5]">
+      <div className="h-safe-screen flex items-center justify-center bg-[#2a6ab5]">
         <div className="font-pixel text-[12px] text-[#8BC34A] animate-pulse">LOADING...</div>
       </div>
     );

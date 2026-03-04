@@ -115,17 +115,11 @@ export default function OnlineGamePage() {
     };
   }, [socket]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Redirect if no room (delay to let zustand propagate on initial mount)
+  // If room was lost after being in one (e.g. session ended), go home
   const hasEverHadRoom = useRef(!!roomCode);
   useEffect(() => {
     if (roomCode) { hasEverHadRoom.current = true; return; }
-    if (hasEverHadRoom.current) { router.push("/"); return; }
-    // First mount with no roomCode — wait for store to propagate
-    // Use getState() to read latest store value (not stale closure)
-    const t = setTimeout(() => {
-      if (!useMultiplayerStore.getState().roomCode) router.push("/");
-    }, 500);
-    return () => clearTimeout(t);
+    if (hasEverHadRoom.current) { router.push("/"); }
   }, [roomCode, router]);
 
   // Reconnect after socket disconnect/reconnect (not on initial navigation from home page)
@@ -236,11 +230,17 @@ export default function OnlineGamePage() {
 
   // --- Render ---
 
-  // Not connected
+  // Waiting for room data (store propagating from home page navigation)
   if (!roomCode || myPlayerIndex === null) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#2a6ab5]">
+      <div className="h-screen flex flex-col items-center justify-center bg-[#2a6ab5] gap-4">
         <div className="font-pixel text-[12px] text-[#8BC34A] animate-pulse">CONNECTING...</div>
+        <button
+          onClick={() => router.push("/")}
+          className="font-pixel text-[9px] text-white/60 hover:text-white"
+        >
+          &larr; BACK TO MENU
+        </button>
       </div>
     );
   }

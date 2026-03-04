@@ -220,6 +220,14 @@ export default function Home() {
     router.push("/game/hotseat");
   }
 
+  // Clean up any stale session when returning to home page
+  useEffect(() => {
+    if (mpStore.roomCode) {
+      socket?.emit("room:leave-game", {});
+      mpStore.reset();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Socket event listeners for online lobby
   useEffect(() => {
     if (!socket) return;

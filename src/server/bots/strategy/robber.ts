@@ -202,9 +202,10 @@ export function pickDiscardResources(
       resourceValue.grain = 3;
     }
 
-    // Sheep nuke awareness: protect wool stockpile if nuke is enabled and we're accumulating
-    if (state.config?.sheepNuke && player.resources.wool >= 6) {
-      resourceValue.wool = Math.max(resourceValue.wool, 5);
+    // Sheep nuke awareness: slightly prefer keeping wool if nuke is enabled,
+    // but don't obsess over it — nuke is a desperation move
+    if (state.config?.sheepNuke && player.resources.wool >= 8) {
+      resourceValue.wool = Math.max(resourceValue.wool, 3);
     }
 
     // Build goal protection: boost value of resources needed for goal

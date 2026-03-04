@@ -95,11 +95,12 @@ function playSquareNote(freq: number, startTime: number, duration: number, volum
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(vol, startTime);
   gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+  // Force gain to true zero so osc.stop() doesn't pop
+  gain.gain.setValueAtTime(0, startTime + duration + 0.001);
 
   osc.connect(gain).connect(ctx.destination);
   osc.start(startTime);
-  // Stop slightly after gain reaches ~zero to avoid abrupt cutoff pop
-  osc.stop(startTime + duration + 0.02);
+  osc.stop(startTime + duration + 0.05);
 }
 
 /** Dice rattle — fast descending noise burst (8-bit style) */
@@ -108,11 +109,11 @@ export function playDiceRoll() {
   const t = ctx.currentTime;
   // Rapid square wave clicks descending
   for (let i = 0; i < 6; i++) {
-    playSquareNote(800 - i * 80, t + i * 0.04, 0.03, 0.06);
+    playSquareNote(800 - i * 80, t + i * 0.05, 0.06, 0.08);
   }
   // Final two landing tones
-  playSquareNote(440, t + 0.28, 0.08, 0.1);
-  playSquareNote(660, t + 0.35, 0.1, 0.1);
+  playSquareNote(440, t + 0.35, 0.12, 0.1);
+  playSquareNote(660, t + 0.45, 0.15, 0.1);
 }
 
 /** Build — two rising 8-bit dings */

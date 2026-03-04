@@ -635,10 +635,10 @@ export default function Home() {
             <div className="flex gap-2">
               <button
                 onClick={createRoom}
-                disabled={!connected || !(players[0].name.trim()) || creating}
+                disabled={!connected || creating}
                 className="flex-1 py-3 bg-[#4CAF50] text-white font-pixel text-[10px] pixel-btn disabled:opacity-50"
               >
-                {creating ? "CREATING..." : "CREATE ROOM"}
+                {creating ? "CREATING..." : connected ? "CREATE ROOM" : "CONNECTING..."}
               </button>
               <input
                 type="text"
@@ -651,7 +651,7 @@ export default function Home() {
               />
               <button
                 onClick={joinRoom}
-                disabled={!connected || !(players[0].name.trim()) || !joinCode.trim() || creating}
+                disabled={!connected || !joinCode.trim() || creating}
                 className="px-4 py-2 bg-[#4CAF50] text-white font-pixel text-[9px] pixel-btn disabled:opacity-50"
               >
                 JOIN

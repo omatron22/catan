@@ -93,15 +93,13 @@ function playSquareNote(freq: number, startTime: number, duration: number, volum
   osc.frequency.setValueAtTime(freq, startTime);
 
   const gain = ctx.createGain();
-  // Tiny fade-in to prevent click/pop artifacts
-  gain.gain.setValueAtTime(0.001, startTime);
-  gain.gain.linearRampToValueAtTime(vol, startTime + 0.003);
-  gain.gain.setValueAtTime(vol, startTime + Math.max(0, duration - 0.01));
+  gain.gain.setValueAtTime(vol, startTime);
   gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
 
   osc.connect(gain).connect(ctx.destination);
   osc.start(startTime);
-  osc.stop(startTime + duration + 0.01);
+  // Stop slightly after gain reaches ~zero to avoid abrupt cutoff pop
+  osc.stop(startTime + duration + 0.02);
 }
 
 /** Dice rattle — fast descending noise burst (8-bit style) */

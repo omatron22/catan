@@ -49,6 +49,7 @@ export interface GameViewProps {
   // Navigation buttons (settings menu)
   onMainMenu: () => void;
   onLobby: () => void;
+  onRestart?: () => void;
 
   // Visual effects (managed by parent)
   flashingHexes: Set<HexKey>;
@@ -64,8 +65,8 @@ export interface GameViewProps {
   tradeOverlay?: ReactNode;
   showTradeOverlay?: boolean;
 
-  // Hotseat: validate requesting against opponent resources
-  onAddToRequesting?: (resource: Resource) => void;
+  // Hotseat: validate requesting against opponent resources (return false to block)
+  onAddToRequesting?: (resource: Resource) => boolean;
 
   // Achievement announcements
   announcement?: Announcement | null;
@@ -90,6 +91,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     onSendChat,
     onMainMenu,
     onLobby,
+    onRestart,
     flashingHexes,
     flashSeven,
     turnDeadline,
@@ -105,7 +107,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
   // --- Menu panel ---
   const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<"lobby" | "mainMenu" | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"lobby" | "mainMenu" | "restart" | null>(null);
   const [volume, setVolume] = useState(getMasterVolume());
   const isOnline = connected !== undefined;
 
@@ -315,13 +317,10 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     });
   }
 
-  // --- Requesting resource (with optional hotseat validation override) ---
+  // --- Requesting resource (with optional hotseat validation guard) ---
   function handleAddToRequesting(resource: Resource) {
-    if (onAddToRequesting) {
-      onAddToRequesting(resource);
-    } else {
-      trade.addToRequesting(resource);
-    }
+    if (onAddToRequesting && !onAddToRequesting(resource)) return;
+    trade.addToRequesting(resource);
   }
 
   // --- Discard handlers (Fix 3) ---
@@ -897,6 +896,30 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
               >
                 RESUME GAME
               </button>
+
+              {!isOnline && onRestart && (
+                confirmAction === "restart" ? (
+                  <div className="bg-blue-100 border-2 border-blue-600 p-3">
+                    <div className="font-pixel text-[8px] text-blue-800 text-center mb-2">
+                      RESTART GAME?
+                    </div>
+                    <div className="text-[9px] text-blue-700 text-center mb-3">
+                      Current game progress will be lost.
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => { playClick(); setConfirmAction(null); }} className="flex-1 py-1.5 bg-[#d4c4a8] hover:bg-[#c4b498] text-[#5a3e28] font-pixel text-[8px] border-2 border-black pixel-btn">CANCEL</button>
+                      <button onClick={() => { playConfirm(); setMenuOpen(false); setConfirmAction(null); onRestart(); }} className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-pixel text-[8px] border-2 border-black pixel-btn">YES, RESTART</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { playClick(); setConfirmAction("restart"); }}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-pixel text-[10px] border-2 border-black transition-colors pixel-btn"
+                  >
+                    RESTART GAME
+                  </button>
+                )
+              )}
 
               {isOnline ? (
                 /* Online: single leave button */

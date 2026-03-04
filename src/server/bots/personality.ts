@@ -15,6 +15,7 @@ export interface PersonalityWeights {
   resourceHoarding: number;
   endgameThreshold: number;
   setupDiversity: number;
+  portStrategyWeight: number;
 }
 
 const PERSONALITY_WEIGHTS: Record<BotPersonality, PersonalityWeights> = {
@@ -32,6 +33,7 @@ const PERSONALITY_WEIGHTS: Record<BotPersonality, PersonalityWeights> = {
     resourceHoarding: 1.0,
     endgameThreshold: 0.8,
     setupDiversity: 1.0,
+    portStrategyWeight: 0.5,
   },
   aggressive: {
     cityScore: 0.9,
@@ -47,6 +49,7 @@ const PERSONALITY_WEIGHTS: Record<BotPersonality, PersonalityWeights> = {
     resourceHoarding: 0.8,
     endgameThreshold: 0.7,
     setupDiversity: 0.8,
+    portStrategyWeight: 0.4,
   },
   builder: {
     cityScore: 1.3,
@@ -62,6 +65,7 @@ const PERSONALITY_WEIGHTS: Record<BotPersonality, PersonalityWeights> = {
     resourceHoarding: 1.3,
     endgameThreshold: 0.85,
     setupDiversity: 1.3,
+    portStrategyWeight: 0.3,
   },
   trader: {
     cityScore: 1.0,
@@ -77,6 +81,7 @@ const PERSONALITY_WEIGHTS: Record<BotPersonality, PersonalityWeights> = {
     resourceHoarding: 0.7,
     endgameThreshold: 0.8,
     setupDiversity: 0.9,
+    portStrategyWeight: 0.8,
   },
   devcard: {
     cityScore: 0.8,
@@ -92,6 +97,7 @@ const PERSONALITY_WEIGHTS: Record<BotPersonality, PersonalityWeights> = {
     resourceHoarding: 1.2,
     endgameThreshold: 0.75,
     setupDiversity: 0.7,
+    portStrategyWeight: 0.4,
   },
 };
 

@@ -1,6 +1,6 @@
 import type { GameState, Resource } from "@/shared/types/game";
 import type { GameAction } from "@/shared/types/actions";
-import { pickSetupVertex, pickSetupRoad, pickBuildVertex } from "./strategy/placement";
+import { pickSetupVertex, pickSetupRoad, pickBuildVertex, computeVertexProduction } from "./strategy/placement";
 import { pickBuildRoad } from "./strategy/roads";
 import { pickBankTrade, pickPlayerTrade, shouldRejectLeaderTrade } from "./strategy/trading";
 import { pickRobberHex, pickStealTarget, pickDiscardResources } from "./strategy/robber";
@@ -156,32 +156,38 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     }
   }
 
-  // 2. Adaptive build priorities — score each option with personality weights
+  // 2. Opportunistic build scoring — each action scored by immediate value
   const options: BuildOption[] = [];
 
-  // City (highest priority — direct VP)
+  // City — pick the highest-production settlement to upgrade
   if (canAfford(player, BUILDING_COSTS.city) && player.settlements.length > 0) {
-    let score = 110 * w.cityScore;
-    if (context.strategy === "cities") score += 20;
+    let bestCityVertex = player.settlements[0];
+    let bestCityEV = 0;
+    for (const v of player.settlements) {
+      const prod = computeVertexProduction(state, v);
+      if (prod.totalEV > bestCityEV) {
+        bestCityEV = prod.totalEV;
+        bestCityVertex = v;
+      }
+    }
+    let score = bestCityEV * 90 * w.cityScore;
     if (context.isEndgame) score += 30;
     options.push({
       name: "city",
       score,
-      execute: () => {
-        const vertex = player.settlements[0];
-        return { type: "build-city", playerIndex: botIndex, vertex };
-      },
+      execute: () => ({ type: "build-city", playerIndex: botIndex, vertex: bestCityVertex }),
     });
   }
 
-  // Settlement (second priority — direct VP)
+  // Settlement — scored by vertex production EV + spatial urgency
   let hasReachableVertex = false;
   if (canAfford(player, BUILDING_COSTS.settlement)) {
     const vertex = pickBuildVertex(state, botIndex);
     if (vertex) {
       hasReachableVertex = true;
-      let score = 90 * w.settlementScore;
-      if (context.strategy === "expansion") score += 15;
+      const prod = computeVertexProduction(state, vertex);
+      let score = prod.totalEV * 100 * w.settlementScore;
+      score += context.spatialUrgency * 30;
       if (context.isEndgame) score += 20;
       options.push({
         name: "settlement",
@@ -191,13 +197,12 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     }
   }
 
-  // Dev card
+  // Dev card — base value + army threat awareness
   if (canAfford(player, BUILDING_COSTS.developmentCard) && state.developmentCardDeck.length > 0) {
-    let score = 25 * w.devCardScore;
-    // Only chase largest army when bot has meaningful progress (2+ knights)
+    let score = 15 * w.devCardScore;
     if (context.distanceToLargestArmy <= 2 && player.knightsPlayed >= 2) score += 30;
     if (context.distanceToLargestArmy <= 1 && player.knightsPlayed >= 2) score += 50;
-    if (context.strategy === "development") score += 30;
+    if (context.largestArmyThreatened) score += 20;
     if (context.isEndgame && context.distanceToLargestArmy <= 2) score += 25;
     options.push({
       name: "devCard",
@@ -206,46 +211,21 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     });
   }
 
-  // Road
+  // Road — low base, boosted by longest road chase and expansion need
   if (canAfford(player, BUILDING_COSTS.road) && player.roads.length < 15) {
     const edge = pickBuildRoad(state, botIndex, context);
     if (edge) {
-      let score = 15 * w.roadScore;
-      // Only chase longest road when bot has meaningful progress (3+ consecutive roads)
+      let score = 10 * w.roadScore;
       if (context.distanceToLongestRoad <= 2 && player.longestRoadLength >= 3) score += 25;
       if (context.distanceToLongestRoad <= 1 && player.longestRoadLength >= 3) score += 40;
-      if (context.strategy === "expansion") score += 10;
+      if (context.longestRoadThreatened) score += 20;
       if (context.isEndgame && context.distanceToLongestRoad <= 2) score += 15;
-      // Boost road score when no reachable vertex — need roads to expand
       if (!hasReachableVertex) score += 40;
       options.push({
         name: "road",
         score,
         execute: () => ({ type: "build-road", playerIndex: botIndex, edge }),
       });
-    }
-  }
-
-  // Multi-turn planning guard: penalize options that spend resources the build goal needs
-  if (context.buildGoal && w.resourceHoarding > 1) {
-    for (const option of options) {
-      const costKey = option.name === "devCard" ? "developmentCard" : option.name;
-      const cost = BUILDING_COSTS[costKey as keyof typeof BUILDING_COSTS];
-      if (!cost) continue;
-
-      let conflictsWithGoal = false;
-      for (const [res, amount] of Object.entries(cost)) {
-        const goalNeed = context.buildGoal.missingResources[res as Resource] ?? 0;
-        if (goalNeed > 0 && player.resources[res as Resource] < (amount || 0) + goalNeed) {
-          conflictsWithGoal = true;
-          break;
-        }
-      }
-
-      // Only penalize non-goal builds
-      if (conflictsWithGoal && costKey !== context.buildGoal.type) {
-        option.score *= (1 / w.resourceHoarding);
-      }
     }
   }
 
@@ -327,6 +307,17 @@ function canAfford(
   return true;
 }
 
+/** Check if two resource maps are equivalent (same resources, same amounts) */
+function resourceMapsEqual(
+  a: Partial<Record<Resource, number>>,
+  b: Partial<Record<Resource, number>>,
+): boolean {
+  for (const r of ALL_RESOURCES) {
+    if ((a[r] ?? 0) !== (b[r] ?? 0)) return false;
+  }
+  return true;
+}
+
 /**
  * Generate a counter-offer from a bot.
  * Uses personality-driven counter-offer chance.
@@ -338,6 +329,11 @@ export function generateBotCounterOffer(
 ): { offering: Partial<Record<Resource, number>>; requesting: Partial<Record<Resource, number>> } | null {
   const trade = state.pendingTrade;
   if (!trade) return null;
+
+  // Suppress counters that are identical to the original trade (= just accepting)
+  function isIdenticalToOriginal(counter: { offering: Partial<Record<Resource, number>>; requesting: Partial<Record<Resource, number>> }): boolean {
+    return resourceMapsEqual(counter.offering, trade!.requesting) && resourceMapsEqual(counter.requesting, trade!.offering);
+  }
 
   // Personality-driven counter-offer chance
   let counterChance = 0.3;
@@ -364,7 +360,9 @@ export function generateBotCounterOffer(
       if (neededResources.length > 0 && surplusResources.length > 0) {
         const giveRes = surplusResources[Math.floor(Math.random() * surplusResources.length)];
         const wantRes = neededResources[Math.floor(Math.random() * neededResources.length)];
-        return { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
+        const counter = { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
+        if (isIdenticalToOriginal(counter)) return null;
+        return counter;
       }
     }
 
@@ -383,7 +381,9 @@ export function generateBotCounterOffer(
 
     const giveRes = canGive[Math.floor(Math.random() * canGive.length)];
     const wantRes = requestedKeys[Math.floor(Math.random() * requestedKeys.length)];
-    return { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
+    const counter = { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
+    if (isIdenticalToOriginal(counter)) return null;
+    return counter;
   } catch {
     // Fallback: basic counter
     if (Math.random() > counterChance) return null;
@@ -403,7 +403,9 @@ export function generateBotCounterOffer(
 
     const giveRes = canGive[Math.floor(Math.random() * canGive.length)];
     const wantRes = requestedKeys[Math.floor(Math.random() * requestedKeys.length)];
-    return { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
+    const counter = { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
+    if (isIdenticalToOriginal(counter)) return null;
+    return counter;
   }
 }
 

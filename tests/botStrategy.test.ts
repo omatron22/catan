@@ -238,8 +238,12 @@ describe("Personality System", () => {
     const ctx0 = computeStrategicContext(state, 0);
     const ctx1 = computeStrategicContext(state, 1);
 
-    expect(ctx0.turnOrderPosition).toBe(0);
-    expect(ctx1.turnOrderPosition).toBe(1);
+    // turnOrderPosition is now relative to startingPlayerIndex (draft position)
+    const expected0 = (0 - state.startingPlayerIndex + 4) % 4;
+    const expected1 = (1 - state.startingPlayerIndex + 4) % 4;
+
+    expect(ctx0.turnOrderPosition).toBe(expected0);
+    expect(ctx1.turnOrderPosition).toBe(expected1);
     expect(ctx0.playerCount).toBe(4);
   });
 });

@@ -12,24 +12,23 @@ import {
 import { NUMBER_DOTS, TERRAIN_RESOURCE } from "@/shared/constants";
 import type { BotStrategicContext } from "./context";
 
+export interface VertexProduction {
+  totalEV: number;
+  perResource: Record<Resource, number>;
+  diversity: number;
+  resourceSet: Set<Resource>;
+}
+
 /**
- * Score a vertex for settlement placement.
- * Higher score = better location.
- * Considers: probability dots, resource diversity, port access.
+ * Compute the expected production for a vertex location.
+ * Uses true probability (NUMBER_DOTS[n] / 36) instead of raw dots.
  */
-export function scoreVertex(state: GameState, vertex: VertexKey, playerIndex: number): number {
-  // Check if vertex is valid (empty, distance rule)
-  if (state.board.vertices[vertex] !== null) return -1;
-  const adj = adjacentVertices(vertex);
-  for (const av of adj) {
-    if (state.board.vertices[av] !== undefined && state.board.vertices[av] !== null) return -1;
-  }
+export function computeVertexProduction(state: GameState, vertex: VertexKey): VertexProduction {
+  const perResource: Record<Resource, number> = { brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0 };
+  const resourceSet = new Set<Resource>();
+  let totalEV = 0;
 
-  let score = 0;
   const adjacentHexes = hexesAdjacentToVertex(vertex);
-  const resourceTypes = new Set<Resource>();
-  let totalDots = 0;
-
   for (const hexCoord of adjacentHexes) {
     const hk = hexKey(hexCoord);
     const hex = state.board.hexes[hk];
@@ -38,91 +37,154 @@ export function scoreVertex(state: GameState, vertex: VertexKey, playerIndex: nu
     const resource = TERRAIN_RESOURCE[hex.terrain];
     if (!resource || !hex.number) continue;
 
-    const dots = NUMBER_DOTS[hex.number] || 0;
-    totalDots += dots;
-    resourceTypes.add(resource);
+    const ev = (NUMBER_DOTS[hex.number] || 0) / 36;
+    totalEV += ev;
+    perResource[resource] += ev;
+    resourceSet.add(resource);
   }
 
-  // Base score from probability dots (0-15 range)
-  score += totalDots * 2;
+  return { totalEV, perResource, diversity: resourceSet.size, resourceSet };
+}
 
-  // Resource diversity bonus (0-10 range)
-  score += resourceTypes.size * 2;
+/**
+ * Evaluate the port bonus for a vertex given its production profile.
+ * Returns the effective extra EV from port trading.
+ */
+export function evaluatePortStrategy(
+  state: GameState,
+  vertex: VertexKey,
+  production: VertexProduction,
+): number {
+  let bonus = 0;
 
-  // Bonus for having both brick+lumber (road building), or ore+grain (city building)
-  if (resourceTypes.has("brick") && resourceTypes.has("lumber")) score += 3;
-  if (resourceTypes.has("ore") && resourceTypes.has("grain")) score += 3;
-
-  // Port access bonus
   for (const port of state.board.ports) {
-    if (port.edgeVertices.includes(vertex)) {
-      if (port.type === "any") {
-        score += 2;
-      } else {
-        // Resource-specific port is valuable if we produce that resource
-        if (resourceTypes.has(port.type as Resource)) {
-          score += 4;
-        } else {
-          score += 1;
-        }
+    if (!port.edgeVertices.includes(vertex)) continue;
+
+    if (port.type === "any") {
+      // 3:1 any port: can convert any excess
+      bonus += production.totalEV / 3;
+    } else {
+      // 2:1 specific port: if vertex produces that resource
+      const portResource = port.type as Resource;
+      const rate = production.perResource[portResource];
+      if (rate > 0) {
+        bonus += rate / 2;
       }
     }
   }
 
-  // Slight penalty for vertices that are mostly off-board (fewer than 3 hexes)
+  return bonus;
+}
+
+/**
+ * Score a vertex for settlement placement using EV-based math.
+ * Higher score = better location.
+ */
+export function scoreVertex(
+  state: GameState,
+  vertex: VertexKey,
+  playerIndex: number,
+  context?: BotStrategicContext,
+): number {
+  // Validity checks
+  if (state.board.vertices[vertex] !== null) return -1;
+  const adj = adjacentVertices(vertex);
+  for (const av of adj) {
+    if (state.board.vertices[av] !== undefined && state.board.vertices[av] !== null) return -1;
+  }
+
+  const production = computeVertexProduction(state, vertex);
+
+  // Base score from probability EV (scaled to useful range)
+  let score = production.totalEV * 100;
+
+  // Diversity bonus (quadratic — reward covering more resource types)
+  score += production.diversity * production.diversity * 8;
+
+  // Port bonus
+  const portBonus = evaluatePortStrategy(state, vertex, production);
+  score += portBonus * 80;
+
+  // Penalty for edge-of-board vertices
+  const adjacentHexes = hexesAdjacentToVertex(vertex);
   const onBoardHexes = adjacentHexes.filter((h) => state.board.hexes[hexKey(h)]).length;
-  if (onBoardHexes < 3) score -= 2;
-  if (onBoardHexes < 2) score -= 3;
+  if (onBoardHexes < 3) score -= 5;
+  if (onBoardHexes < 2) score -= 8;
+
+  // Personality modifiers
+  if (context) {
+    if (context.personality === "builder") {
+      // Builder slightly prefers brick/lumber EV
+      score += (production.perResource.brick + production.perResource.lumber) * 20;
+    }
+    if (context.personality === "devcard") {
+      // Devcard prefers ore/grain/wool EV
+      score += (production.perResource.ore + production.perResource.grain + production.perResource.wool) * 15;
+    }
+  }
 
   return score;
 }
 
 /**
  * Pick the best vertex for settlement placement during setup.
- * For second settlement, also considers complementing the first settlement's resources.
- * When context is provided, uses turn order awareness and personality diversity.
+ * Uses EV math, turn-order awareness, and port strategy evaluation.
  */
-export function pickSetupVertex(state: GameState, playerIndex: number, context?: BotStrategicContext): VertexKey | null {
+export function pickSetupVertex(
+  state: GameState,
+  playerIndex: number,
+  context?: BotStrategicContext,
+): VertexKey | null {
   const player = state.players[playerIndex];
   const isSecondSettlement = player.settlements.length === 1;
 
   let bestVertex: VertexKey | null = null;
   let bestScore = -Infinity;
 
-  for (const vk of Object.keys(state.board.vertices)) {
-    let score = scoreVertex(state, vk, playerIndex);
-    if (score < 0) continue;
+  // If second settlement, compute first settlement's production
+  let firstProduction: VertexProduction | null = null;
+  if (isSecondSettlement) {
+    firstProduction = computeVertexProduction(state, player.settlements[0]);
+  }
 
-    // For second settlement, prefer resources we don't already produce
-    if (isSecondSettlement && player.settlements.length > 0) {
-      const firstResources = getResourcesAtVertex(state, player.settlements[0]);
-      const thisResources = getResourcesAtVertex(state, vk);
-      const newResources = thisResources.filter((r) => !firstResources.includes(r));
-      const diversityMultiplier = context ? context.weights.setupDiversity : 1.0;
-      score += newResources.length * 3 * diversityMultiplier;
+  for (const vk of Object.keys(state.board.vertices)) {
+    const base = scoreVertex(state, vk, playerIndex, context);
+    if (base < 0) continue;
+
+    let score = base;
+    const production = computeVertexProduction(state, vk);
+
+    // Second settlement: complement first settlement's resources
+    if (isSecondSettlement && firstProduction) {
+      let newResources = 0;
+      for (const res of production.resourceSet) {
+        if (!firstProduction.resourceSet.has(res)) newResources++;
+      }
+      const diversityMult = context ? context.weights.setupDiversity : 1.0;
+      score += newResources * 15 * diversityMult;
+
+      // Strongly prefer brick/lumber if first settlement lacks them
+      if (!firstProduction.resourceSet.has("brick") && production.resourceSet.has("brick")) score += 10;
+      if (!firstProduction.resourceSet.has("lumber") && production.resourceSet.has("lumber")) score += 10;
     }
 
-    // Turn order awareness: later picks get bigger complementary resource bonus
+    // Turn-order awareness
     if (context) {
-      const turnPosition = context.turnOrderPosition;
-      const totalPlayers = context.playerCount;
+      const pos = context.turnOrderPosition;
+      const total = context.playerCount;
 
-      if (turnPosition === 0) {
-        // First pick: prioritize raw probability (dots)
-        const adjacentHexes = hexesAdjacentToVertex(vk);
-        let dots = 0;
-        for (const hexCoord of adjacentHexes) {
-          const hex = state.board.hexes[hexKey(hexCoord)];
-          if (!hex || !hex.number) continue;
-          dots += NUMBER_DOTS[hex.number] || 0;
-        }
-        score += dots * 0.5;
-      } else {
-        // Later positions: bigger complementary bonus scaled by position
-        const positionFactor = turnPosition / (totalPlayers - 1);
-        const thisResources = getResourcesAtVertex(state, vk);
-        const uniqueResourceTypes = new Set(thisResources);
-        score += uniqueResourceTypes.size * positionFactor * 2 * context.weights.setupDiversity;
+      if (pos === 0 && !isSecondSettlement) {
+        // First pick: prioritize raw probability
+        score += production.totalEV * 20;
+      } else if (pos >= total - 2 && !isSecondSettlement) {
+        // Late first pick: boost diversity since top spots will be taken
+        score += production.diversity * 5;
+      }
+
+      // Port strategy bonus (amplified by personality weight)
+      const portBonus = evaluatePortStrategy(state, vk, production);
+      if (portBonus > 0) {
+        score += portBonus * 40 * context.weights.portStrategyWeight;
       }
     }
 
@@ -137,10 +199,14 @@ export function pickSetupVertex(state: GameState, playerIndex: number, context?:
 
 /**
  * Pick the best edge for road placement during setup.
- * Road must connect to the given settlement vertex.
- * When context is provided, roads toward higher-value future vertices are preferred.
+ * Points toward high-value vertices and ports, with opponent avoidance.
  */
-export function pickSetupRoad(state: GameState, playerIndex: number, settlementVertex: VertexKey, context?: BotStrategicContext): EdgeKey | null {
+export function pickSetupRoad(
+  state: GameState,
+  playerIndex: number,
+  settlementVertex: VertexKey,
+  context?: BotStrategicContext,
+): EdgeKey | null {
   const edges = edgesAtVertex(settlementVertex);
   let bestEdge: EdgeKey | null = null;
   let bestScore = -Infinity;
@@ -149,23 +215,54 @@ export function pickSetupRoad(state: GameState, playerIndex: number, settlementV
     if (state.board.edges[ek] !== null) continue;
     if (!(ek in state.board.edges)) continue;
 
-    // Score by what the other end of the road leads to
     const [v1, v2] = edgeEndpoints(ek);
     const otherEnd = v1 === settlementVertex ? v2 : v1;
 
-    // Look at vertices reachable from the other end
     let score = 0;
-    const reachable = adjacentVertices(otherEnd);
-    for (const rv of reachable) {
-      const vs = scoreVertex(state, rv, playerIndex);
-      if (vs > 0) {
-        const discount = context ? 0.4 : 0.3; // Higher lookahead value with context
-        score += vs * discount;
+
+    // Score the other end of the road
+    const otherProd = computeVertexProduction(state, otherEnd);
+    if (state.board.vertices[otherEnd] === null) {
+      score += otherProd.totalEV * 20;
+      if (context) {
+        const pb = evaluatePortStrategy(state, otherEnd, otherProd);
+        score += pb * 25 * context.weights.portStrategyWeight;
       }
     }
 
-    // Prefer roads that point toward the center of the board
-    score += 1; // small tiebreaker
+    // Score vertices reachable from the other end
+    const reachable = adjacentVertices(otherEnd);
+    for (const rv of reachable) {
+      if (rv === settlementVertex) continue;
+      if (state.board.vertices[rv] !== null) continue;
+
+      const prod = computeVertexProduction(state, rv);
+      score += prod.totalEV * 40;
+
+      if (context) {
+        const pb = evaluatePortStrategy(state, rv, prod);
+        score += pb * 30 * context.weights.portStrategyWeight;
+      }
+    }
+
+    // Opponent proximity penalty
+    if (context) {
+      for (const rv of reachable) {
+        const building = state.board.vertices[rv];
+        if (building && building.playerIndex !== playerIndex) {
+          score -= 10;
+        }
+        const adjEdges = edgesAtVertex(rv);
+        for (const ae of adjEdges) {
+          const road = state.board.edges[ae];
+          if (road && road.playerIndex !== playerIndex) {
+            score -= 3;
+          }
+        }
+      }
+    }
+
+    score += 1; // tiebreaker
 
     if (score > bestScore) {
       bestScore = score;
@@ -182,7 +279,7 @@ export function pickSetupRoad(state: GameState, playerIndex: number, settlementV
 export function pickBuildVertex(state: GameState, playerIndex: number): VertexKey | null {
   const player = state.players[playerIndex];
   let bestVertex: VertexKey | null = null;
-  let bestScore = 0; // Must be strictly positive (scoreVertex returns -1 for invalid)
+  let bestScore = 0;
 
   for (const vk of Object.keys(state.board.vertices)) {
     if (state.board.vertices[vk] !== null) continue;
@@ -209,86 +306,4 @@ export function pickBuildVertex(state: GameState, playerIndex: number): VertexKe
   }
 
   return bestVertex;
-}
-
-function getResourcesAtVertex(state: GameState, vertex: VertexKey): Resource[] {
-  const resources: Resource[] = [];
-  const adjacentHexes = hexesAdjacentToVertex(vertex);
-  for (const hexCoord of adjacentHexes) {
-    const hex = state.board.hexes[hexKey(hexCoord)];
-    if (!hex) continue;
-    const resource = TERRAIN_RESOURCE[hex.terrain];
-    if (resource) resources.push(resource);
-  }
-  return resources;
-}
-
-/**
- * Enhanced vertex scoring that uses the bot's strategic context.
- * Adds expansion potential, strategy weighting, and complementary resource bonuses.
- */
-export function scoreVertexEnhanced(
-  state: GameState,
-  vertex: VertexKey,
-  playerIndex: number,
-  context: BotStrategicContext
-): number {
-  const base = scoreVertex(state, vertex, playerIndex);
-  if (base < 0) return base;
-
-  let score = base;
-  const adjacentHexes = hexesAdjacentToVertex(vertex);
-  const resourceTypes = new Set<Resource>();
-
-  for (const hexCoord of adjacentHexes) {
-    const hex = state.board.hexes[hexKey(hexCoord)];
-    if (!hex) continue;
-    const resource = TERRAIN_RESOURCE[hex.terrain];
-    if (resource && hex.number) resourceTypes.add(resource);
-  }
-
-  // --- Strategy weighting ---
-  const strategyResources: Record<string, Resource[]> = {
-    expansion: ["brick", "lumber"],
-    cities: ["ore", "grain"],
-    development: ["wool", "ore", "grain"],
-  };
-  const preferred = strategyResources[context.strategy] || [];
-  for (const res of preferred) {
-    if (resourceTypes.has(res)) score += 2;
-  }
-
-  // --- Complementary resources: big bonus for resources bot doesn't produce ---
-  for (const res of context.missingResources) {
-    if (resourceTypes.has(res)) score += 5;
-  }
-
-  // --- Port strategic value ---
-  for (const port of state.board.ports) {
-    if (!port.edgeVertices.includes(vertex)) continue;
-    if (port.type !== "any") {
-      const portRes = port.type as Resource;
-      // High production + matching port = big bonus
-      if (context.productionRates[portRes] > 0.15) {
-        score += 6;
-      }
-    }
-  }
-
-  // --- Expansion potential (2-edge-deep lookahead) ---
-  let expansionBonus = 0;
-  const adjVerts = adjacentVertices(vertex);
-  for (const av of adjVerts) {
-    const avScore = scoreVertex(state, av, playerIndex);
-    if (avScore > 0) expansionBonus += avScore * 0.15;
-    // Second hop
-    const secondHop = adjacentVertices(av);
-    for (const sv of secondHop) {
-      const svScore = scoreVertex(state, sv, playerIndex);
-      if (svScore > 0) expansionBonus += svScore * 0.05;
-    }
-  }
-  score += expansionBonus;
-
-  return score;
 }

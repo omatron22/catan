@@ -34,6 +34,7 @@ interface GameStore {
   setHighlightedHexes: (hexes: Set<HexKey>) => void;
   setBotThinking: (thinking: boolean) => void;
   clearError: () => void;
+  resetGame: () => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -99,4 +100,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setHighlightedHexes: (hexes) => set({ highlightedHexes: hexes }),
   setBotThinking: (thinking) => set({ botThinking: thinking }),
   clearError: () => set({ error: null }),
+  resetGame: () => set({
+    gameState: null,
+    config: null,
+    fullConfig: null,
+    botIndices: [],
+    activeAction: null,
+    highlightedVertices: new Set(),
+    highlightedEdges: new Set(),
+    highlightedHexes: new Set(),
+    lastEvents: [],
+    error: null,
+    botThinking: false,
+  }),
 }));

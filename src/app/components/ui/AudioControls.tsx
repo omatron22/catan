@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   isMusicMuted, setMusicMuted,
   setSfxMuted, playClick,
@@ -35,6 +35,12 @@ function MusicIcon({ muted, size = 16 }: { muted: boolean; size?: number }) {
 export default function AudioControls({ className = "" }: { className?: string }) {
   const [musicOff, setMusicOff] = useState(isMusicMuted);
   const [vol, setVol] = useState(getMasterVolume);
+  const [showSlider, setShowSlider] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const toggleSlider = useCallback(() => {
+    setShowSlider((prev) => !prev);
+  }, []);
 
   const toggleMusic = useCallback(() => {
     const next = !musicOff;
@@ -51,24 +57,39 @@ export default function AudioControls({ className = "" }: { className?: string }
     setSfxMuted(v === 0);
   }, []);
 
+  // Click-outside to close slider
+  useEffect(() => {
+    if (!showSlider) return;
+    function handleMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSlider(false);
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [showSlider]);
+
   return (
-    <div className={`flex items-center gap-1 ${className}`}>
+    <div ref={containerRef} className={`flex items-center gap-1 ${className}`}>
       <button
-        onClick={toggleMusic}
+        onClick={toggleSlider}
+        onDoubleClick={toggleMusic}
         className="w-8 h-8 flex items-center justify-center bg-black/40 hover:bg-black/60 border border-white/20 transition-colors cursor-pointer"
-        title={musicOff ? "Music: OFF" : "Music: ON"}
+        title={musicOff ? "Music: OFF (click for volume)" : "Music: ON (click for volume)"}
       >
         <MusicIcon muted={musicOff} />
       </button>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={vol}
-        onChange={handleVolumeChange}
-        className="w-16 h-1.5 accent-amber-400 cursor-pointer"
-        title={`Volume: ${vol}%`}
-      />
+      {showSlider && (
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={vol}
+          onChange={handleVolumeChange}
+          className="w-16 h-1.5 accent-amber-400 cursor-pointer"
+          title={`Volume: ${vol}%`}
+        />
+      )}
     </div>
   );
 }

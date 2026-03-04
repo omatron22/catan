@@ -15,52 +15,64 @@ export interface PlayerTradeOffer {
 
 /**
  * Decide whether the bot should initiate a player trade.
- * Uses build goal to determine what to request and what surplus to offer.
+ * Trades more freely — only hoards when within 1 resource of completing build goal.
  */
 export function pickPlayerTrade(
   state: GameState,
   playerIndex: number,
   context: BotStrategicContext,
 ): PlayerTradeOffer | null {
-  // Check personality trade chance
   if (Math.random() >= context.weights.playerTradeChance) return null;
-
-  // Don't trade if no build goal
-  if (!context.buildGoal) return null;
 
   const player = state.players[playerIndex];
 
-  // Find what we need from our build goal
-  const needed: Resource[] = [];
-  for (const [res, amount] of Object.entries(context.buildGoal.missingResources)) {
-    if ((amount || 0) > 0) needed.push(res as Resource);
-  }
-  if (needed.length === 0) return null;
-
-  // Find what we have surplus of (more than our goal needs + 1 buffer)
-  const surplus: Resource[] = [];
-  for (const res of ALL_RESOURCES) {
-    if (needed.includes(res)) continue;
-    const goalNeed = getGoalNeed(context, res);
-    if (player.resources[res] > goalNeed + 1) {
-      surplus.push(res);
-    }
-  }
-  if (surplus.length === 0) return null;
-
-  // Don't trade with anyone within 2 VP of winning
+  // Don't trade with anyone within 2 VP of winning in endgame
   if (context.isEndgame) {
     const anyoneClose = context.playerThreats.some((t) => t.visibleVP >= context.vpToWin - 2);
     if (anyoneClose) return null;
   }
 
-  // Pick the most needed resource and the most surplus resource
-  const requestRes = needed[0];
-  const offerRes = surplus.reduce((best, res) => {
-    const bestGoalNeed = getGoalNeed(context, best);
-    const resGoalNeed = getGoalNeed(context, res);
-    return (player.resources[res] - resGoalNeed) > (player.resources[best] - bestGoalNeed) ? res : best;
-  });
+  // Determine what we need
+  let needed: Resource[] = [];
+  if (context.buildGoal) {
+    for (const [res, amount] of Object.entries(context.buildGoal.missingResources)) {
+      if ((amount || 0) > 0) needed.push(res as Resource);
+    }
+  }
+  // Also consider generally scarce resources if no build goal needs
+  if (needed.length === 0) {
+    needed = ALL_RESOURCES.filter((r) => player.resources[r] === 0 && context.productionRates[r] === 0);
+  }
+  if (needed.length === 0) return null;
+
+  // Only hoard for goal when within 1 resource of completion
+  const totalMissing = context.buildGoal
+    ? Object.values(context.buildGoal.missingResources).reduce((sum, n) => sum + (n || 0), 0)
+    : Infinity;
+
+  // Find surplus: resources we have 2+ of that we don't urgently need
+  const surplus: Resource[] = [];
+  for (const res of ALL_RESOURCES) {
+    if (needed.includes(res)) continue;
+    if (player.resources[res] < 2) continue;
+    // Only protect resources when very close to completing build goal
+    if (totalMissing <= 1) {
+      const goalNeed = getGoalNeed(context, res);
+      if (goalNeed > 0 && player.resources[res] <= goalNeed + 1) continue;
+    }
+    surplus.push(res);
+  }
+  if (surplus.length === 0) return null;
+
+  const offerRes = surplus.reduce((best, res) =>
+    player.resources[res] > player.resources[best] ? res : best
+  );
+
+  // Pick a needed resource that at least one opponent actually has
+  const requestRes = needed.find((r) =>
+    state.players.some((p, i) => i !== playerIndex && p.resources[r] > 0)
+  );
+  if (!requestRes) return null;
 
   return {
     offering: { [offerRes]: 1 },
@@ -70,7 +82,7 @@ export function pickPlayerTrade(
 
 /**
  * Decide whether the bot should make a bank trade.
- * Goal-oriented: protects resources needed for build goal.
+ * Only protects goal resources when within 1 resource of completion.
  */
 export function pickBankTrade(state: GameState, playerIndex: number, context?: BotStrategicContext): BankTrade | null {
   const player = state.players[playerIndex];
@@ -78,7 +90,10 @@ export function pickBankTrade(state: GameState, playerIndex: number, context?: B
   const needs = getResourceNeeds(state, playerIndex, context);
   if (needs.length === 0) return null;
 
-  const hoarding = context?.weights.resourceHoarding ?? 1.0;
+  // Only protect resources when very close to completing build goal
+  const totalMissing = context?.buildGoal
+    ? Object.values(context.buildGoal.missingResources).reduce((sum, n) => sum + (n || 0), 0)
+    : Infinity;
 
   for (const needed of needs) {
     for (const giving of ALL_RESOURCES) {
@@ -91,8 +106,8 @@ export function pickBankTrade(state: GameState, playerIndex: number, context?: B
       const giveNeed = needs.find((n) => n === giving);
       if (giveNeed && player.resources[giving] <= ratio + 1) continue;
 
-      // Goal-oriented protection: don't trade away goal resources if hoarding
-      if (context?.buildGoal && hoarding > 1) {
+      // Goal-oriented protection: only when within 1 resource of completing
+      if (context?.buildGoal && totalMissing <= 1) {
         const goalNeed = getGoalNeed(context, giving);
         if (goalNeed > 0 && player.resources[giving] <= ratio + goalNeed) continue;
       }
@@ -123,7 +138,6 @@ function getTradeRatio(state: GameState, playerIndex: number, resource: Resource
 
 /**
  * Determine what resources the bot needs most.
- * Enhanced: strategy-aware prioritization.
  */
 function getResourceNeeds(state: GameState, playerIndex: number, context?: BotStrategicContext): Resource[] {
   const player = state.players[playerIndex];
@@ -160,7 +174,6 @@ function getResourceNeeds(state: GameState, playerIndex: number, context?: BotSt
 
 /**
  * Determine what the bot should try to build, in priority order.
- * Enhanced: strategy-aware.
  */
 function getBuildGoals(state: GameState, playerIndex: number, context?: BotStrategicContext): string[] {
   const player = state.players[playerIndex];
@@ -205,8 +218,7 @@ export function shouldRejectLeaderTrade(
   context: BotStrategicContext
 ): boolean {
   const fromVP = state.players[fromPlayer].victoryPoints;
-  const botVP = state.players[context.turnOrderPosition].victoryPoints;
-  // Reject if proposer is 2+ VP ahead of us
+  const botVP = state.players[context.playerIndex].victoryPoints;
   if (fromVP >= botVP + 2) return true;
   return false;
 }

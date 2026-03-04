@@ -57,6 +57,7 @@ export default function GamePage() {
     setGameState,
     setBotThinking,
     clearError,
+    resetGame,
   } = useGameStore();
 
   const [flashSeven, setFlashSeven] = useState(false);
@@ -626,12 +627,10 @@ export default function GamePage() {
     setGameState({ ...gameState, log: [...gameState.log, entry] });
   }, [gameState, setGameState]);
 
-  // --- Hotseat: validate requesting against opponent resources ---
-  const handleAddToRequesting = useCallback((resource: Resource) => {
-    if (!gameState) return;
-    // Access the GameView's trade state via the imperative handle isn't practical here,
-    // so we let the GameView's hook handle the basic add and rely on the OFFER button
-    // being disabled when the trade isn't viable
+  // --- Hotseat: block requesting resources nobody else has ---
+  const handleAddToRequesting = useCallback((resource: Resource): boolean => {
+    if (!gameState) return false;
+    return gameState.players.some((p, i) => i !== HUMAN_PLAYER_INDEX && p.resources[resource] > 0);
   }, [gameState]);
 
   // === RENDER ===
@@ -805,13 +804,26 @@ export default function GamePage() {
         buildingStyles={boardBuildingStyles}
         chatLog={gameState.log}
         onSendChat={handleSendChat}
-        onMainMenu={() => { sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); router.push("/"); }}
-        onLobby={() => { sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); sessionStorage.setItem("catan-auto-lobby", "true"); router.push("/"); }}
+        onMainMenu={() => { resetGame(); sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); router.push("/"); }}
+        onLobby={() => { resetGame(); sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); sessionStorage.setItem("catan-auto-lobby", "true"); router.push("/"); }}
+        onRestart={() => {
+          resetGame();
+          const fullStored = sessionStorage.getItem("catan-game-config");
+          const legacyStored = sessionStorage.getItem("catan-config");
+          if (fullStored) {
+            const fc = JSON.parse(fullStored);
+            const lc = { playerName: fc.players[0]?.name ?? "You", botNames: fc.players.slice(1).map((p: { name: string }) => p.name) };
+            initGame(lc, fc);
+          } else if (legacyStored) {
+            initGame(JSON.parse(legacyStored));
+          }
+        }}
         flashingHexes={flashingHexes}
         flashSeven={flashSeven}
         turnDeadline={turnDeadline}
         error={error}
         botThinking={botThinking}
+        onAddToRequesting={handleAddToRequesting}
         tradeOverlay={botTradeOverlayNode || tradeOverlayNode}
         showTradeOverlay={pendingTradeUI !== null || botTradeUI !== null}
         announcement={announcement}

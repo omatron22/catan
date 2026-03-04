@@ -1,7 +1,13 @@
 import type { GameState, Resource } from "@/shared/types/game";
-import type { HexKey } from "@/shared/types/coordinates";
+import type { HexKey, VertexKey } from "@/shared/types/coordinates";
 import type { BotPersonality } from "@/shared/types/config";
-import { hexVertices, hexKey } from "@/shared/utils/hexMath";
+import {
+  hexVertices,
+  hexKey,
+  adjacentVertices,
+  edgeEndpoints,
+  edgesAtVertex,
+} from "@/shared/utils/hexMath";
 import { calculateLongestRoad } from "@/server/engine/longestRoad";
 import { NUMBER_DOTS, TERRAIN_RESOURCE, ALL_RESOURCES, BUILDING_COSTS, MIN_KNIGHTS_FOR_LARGEST_ARMY, MIN_ROADS_FOR_LONGEST_ROAD } from "@/shared/constants";
 import { getWeights, type PersonalityWeights } from "../personality";
@@ -24,6 +30,8 @@ export interface BuildGoal {
 }
 
 export interface BotStrategicContext {
+  /** Actual player index */
+  playerIndex: number;
   /** Expected resources per turn (dots/36 × building multiplier) per resource */
   productionRates: Record<Resource, number>;
   /** Own road length */
@@ -48,21 +56,28 @@ export interface BotStrategicContext {
   personality: BotPersonality;
   /** Personality weights */
   weights: PersonalityWeights;
-  /** Current primary build target */
+  /** Current primary build target (first of buildGoals) */
   buildGoal: BuildGoal | null;
+  /** Ranked list of all viable build goals */
+  buildGoals: BuildGoal[];
   /** Whether bot is in endgame mode */
   isEndgame: boolean;
   /** Bot's total VP (visible + hidden) */
   ownVP: number;
-  /** Turn order position (0-based) */
+  /** Turn order position (0 = picks first in setup draft) */
   turnOrderPosition: number;
   /** Total player count */
   playerCount: number;
+  /** How threatened expansion paths are (0-1) */
+  spatialUrgency: number;
+  /** Opponent within 1 road of overtaking longest road */
+  longestRoadThreatened: boolean;
+  /** Opponent within 1 knight of overtaking largest army */
+  largestArmyThreatened: boolean;
 }
 
 /**
  * Compute the strategic context for a bot player.
- * This is the foundation for all enhanced decision-making.
  */
 export function computeStrategicContext(state: GameState, playerIndex: number): BotStrategicContext {
   const player = state.players[playerIndex];
@@ -130,7 +145,6 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
 
     let threatScore = p.victoryPoints + devCardCount * 0.2;
 
-    // Milestone proximity bonuses
     if (longestRoadHolder === null && roadLen >= MIN_ROADS_FOR_LONGEST_ROAD - 1) {
       threatScore += 1.5;
     } else if (longestRoadHolder !== i && roadLen >= longestRoadLength - 1) {
@@ -153,6 +167,20 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
   }
 
   playerThreats.sort((a, b) => b.threatScore - a.threatScore);
+
+  // --- Longest road / largest army threats ---
+  let longestRoadThreatened = false;
+  let largestArmyThreatened = false;
+
+  if (longestRoadHolder === playerIndex) {
+    longestRoadThreatened = playerThreats.some((t) => t.roadLength >= ownRoadLength - 1);
+  }
+  if (armyHolder === playerIndex) {
+    largestArmyThreatened = playerThreats.some((t) => t.knightsPlayed >= ownKnightsPlayed - 1);
+  }
+
+  // --- Spatial urgency ---
+  const spatialUrgency = computeSpatialUrgency(state, playerIndex);
 
   // --- Strategy selection ---
   const brickLumber = productionRates.brick + productionRates.lumber;
@@ -181,10 +209,16 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
   // --- Endgame detection ---
   const isEndgame = ownVP >= vpToWin * weights.endgameThreshold;
 
-  // --- Build goal ---
-  const buildGoal = computeBuildGoal(state, playerIndex, productionRates, weights);
+  // --- Build goals (ranked by proximity, no personality weighting) ---
+  const buildGoals = computeBuildGoals(state, playerIndex, productionRates);
+  const buildGoal = buildGoals.length > 0 ? buildGoals[0] : null;
+
+  // --- Turn order position (actual draft position, not player index) ---
+  const numPlayers = state.players.length;
+  const turnOrderPosition = (playerIndex - state.startingPlayerIndex + numPlayers) % numPlayers;
 
   return {
+    playerIndex,
     productionRates,
     ownRoadLength,
     distanceToLongestRoad,
@@ -198,32 +232,80 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
     personality,
     weights,
     buildGoal,
+    buildGoals,
     isEndgame,
     ownVP,
-    turnOrderPosition: playerIndex,
-    playerCount: state.players.length,
+    turnOrderPosition,
+    playerCount: numPlayers,
+    spatialUrgency,
+    longestRoadThreatened,
+    largestArmyThreatened,
   };
 }
 
 /**
- * Compute the best build goal for the bot.
- * Considers what's closest to completion, weighted by personality.
+ * Compute spatial urgency: ratio of expandable vertices threatened by opponents.
  */
-function computeBuildGoal(
+function computeSpatialUrgency(state: GameState, playerIndex: number): number {
+  const playerRoads = state.players[playerIndex].roads;
+  if (playerRoads.length === 0) return 0;
+
+  const expandableSet = new Set<string>();
+
+  for (const road of playerRoads) {
+    const [v1, v2] = edgeEndpoints(road);
+    for (const v of [v1, v2]) {
+      if (state.board.vertices[v] !== null) continue;
+      const adj = adjacentVertices(v);
+      const tooClose = adj.some((av) => {
+        const b = state.board.vertices[av];
+        return b !== null && b !== undefined;
+      });
+      if (tooClose) continue;
+      expandableSet.add(v);
+    }
+  }
+
+  if (expandableSet.size === 0) return 1; // Can't expand = max urgency
+
+  let threatened = 0;
+  for (const v of expandableSet) {
+    const adj = adjacentVertices(v);
+    let isThreatened = false;
+    for (const av of adj) {
+      const b = state.board.vertices[av];
+      if (b && b.playerIndex !== playerIndex) { isThreatened = true; break; }
+      // Check 2nd hop
+      const adj2 = adjacentVertices(av);
+      for (const sv of adj2) {
+        if (sv === v) continue;
+        const b2 = state.board.vertices[sv];
+        if (b2 && b2.playerIndex !== playerIndex) { isThreatened = true; break; }
+      }
+      if (isThreatened) break;
+    }
+    if (isThreatened) threatened++;
+  }
+
+  return threatened / expandableSet.size;
+}
+
+/**
+ * Compute ranked build goals by proximity (no personality weighting).
+ */
+function computeBuildGoals(
   state: GameState,
   playerIndex: number,
   productionRates: Record<Resource, number>,
-  weights: PersonalityWeights,
-): BuildGoal | null {
+): BuildGoal[] {
   const player = state.players[playerIndex];
-
   const candidates: Array<BuildGoal & { score: number }> = [];
 
-  const buildTypes: Array<{ type: BuildGoal["type"]; costKey: string; weight: number; canBuild: boolean }> = [
-    { type: "city", costKey: "city", weight: weights.cityScore * 1.5, canBuild: player.settlements.length > 0 && player.cities.length < 4 },
-    { type: "settlement", costKey: "settlement", weight: weights.settlementScore * 1.5, canBuild: player.settlements.length + player.cities.length < 5 },
-    { type: "road", costKey: "road", weight: weights.roadScore, canBuild: player.roads.length < 15 },
-    { type: "developmentCard", costKey: "developmentCard", weight: weights.devCardScore, canBuild: state.developmentCardDeck.length > 0 },
+  const buildTypes: Array<{ type: BuildGoal["type"]; costKey: string; canBuild: boolean }> = [
+    { type: "city", costKey: "city", canBuild: player.settlements.length > 0 && player.cities.length < 4 },
+    { type: "settlement", costKey: "settlement", canBuild: player.settlements.length + player.cities.length < 5 },
+    { type: "road", costKey: "road", canBuild: player.roads.length < 15 },
+    { type: "developmentCard", costKey: "developmentCard", canBuild: state.developmentCardDeck.length > 0 },
   ];
 
   for (const bt of buildTypes) {
@@ -242,7 +324,6 @@ function computeBuildGoal(
       }
     }
 
-    // Estimate turns to acquire missing resources from production
     let estimatedTurns = 0;
     if (totalMissing > 0) {
       for (const [res, need] of Object.entries(missing)) {
@@ -250,20 +331,15 @@ function computeBuildGoal(
         if (rate > 0) {
           estimatedTurns = Math.max(estimatedTurns, (need as number) / rate);
         } else {
-          estimatedTurns = Math.max(estimatedTurns, 20); // high penalty for unproduced resources
+          estimatedTurns = Math.max(estimatedTurns, 20);
         }
       }
     }
 
-    // Score: lower estimated turns + higher weight = better
-    const score = bt.weight * (1 / (1 + estimatedTurns));
-
+    const score = 1 / (1 + estimatedTurns);
     candidates.push({ type: bt.type, missingResources: missing, estimatedTurns, score });
   }
 
-  if (candidates.length === 0) return null;
-
   candidates.sort((a, b) => b.score - a.score);
-  const best = candidates[0];
-  return { type: best.type, missingResources: best.missingResources, estimatedTurns: best.estimatedTurns };
+  return candidates.map((c) => ({ type: c.type, missingResources: c.missingResources, estimatedTurns: c.estimatedTurns }));
 }

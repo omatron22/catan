@@ -15,10 +15,11 @@ export function StylePreview({ style, type, color }: { style: BuildingStyle; typ
 }
 
 /** Blocky pixel rule toggle card */
-export function RuleCard({ label, active, onClick, icon, disabled }: { label: string; active: boolean; onClick?: () => void; icon: "robber" | "dice" | "doubles" | "nuke"; disabled?: boolean }) {
+export function RuleCard({ label, active, onClick, icon, disabled, tooltip }: { label: string; active: boolean; onClick?: () => void; icon: "robber" | "dice" | "doubles" | "nuke"; disabled?: boolean; tooltip?: string }) {
   return (
     <button
       onClick={disabled ? undefined : onClick}
+      title={tooltip}
       className={`flex flex-col items-center gap-1.5 px-4 py-3 border-2 transition-all w-28 ${
         active
           ? "border-amber-500 bg-amber-50 scale-105"

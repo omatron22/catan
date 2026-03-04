@@ -71,6 +71,9 @@ export interface GameViewProps {
   // Achievement announcements
   announcement?: Announcement | null;
   onDismissAnnouncement?: () => void;
+
+  // Dice animation sound callback
+  onDiceAnimationStart?: () => void;
 }
 
 function canAfford(resources: Record<Resource, number>, cost: Partial<Record<Resource, number>>): boolean {
@@ -103,6 +106,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     onAddToRequesting,
     announcement,
     onDismissAnnouncement,
+    onDiceAnimationStart,
   } = props;
 
   // --- Menu panel ---
@@ -572,9 +576,10 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                     roll={null}
                     canRoll={true}
                     onRoll={() => onAction({ type: "roll-dice", playerIndex: myPlayerIndex })}
+                    onAnimationStart={onDiceAnimationStart}
                   />
                 ) : gameState.lastDiceRoll ? (
-                  <DiceDisplay roll={gameState.lastDiceRoll} canRoll={false} onRoll={() => {}} />
+                  <DiceDisplay roll={gameState.lastDiceRoll} canRoll={false} onRoll={() => {}} onAnimationStart={onDiceAnimationStart} />
                 ) : null}
               </div>
             )}

@@ -72,9 +72,27 @@ export default function GamePage() {
   // Stop lobby music when game starts
   useEffect(() => { stopMusic(); }, []);
 
-  // Initialize game
+  // Initialize game — restore saved state on refresh, or create new game
   useEffect(() => {
     if (!gameState) {
+      // Try to restore in-progress game from sessionStorage
+      const savedState = sessionStorage.getItem("catan-game-state");
+      if (savedState) {
+        try {
+          const parsed = JSON.parse(savedState);
+          // Re-init via initGame path to also set botIndices and fullConfig
+          const fc = parsed.config;
+          if (fc) {
+            const lc = { playerName: fc.players[0]?.name ?? "You", botNames: fc.players.slice(1).map((p: { name: string }) => p.name) };
+            initGame(lc, fc);
+            // Overwrite the freshly created game with the saved state
+            setGameState(parsed);
+          } else {
+            setGameState(parsed);
+          }
+          return;
+        } catch {}
+      }
       const fullStored = sessionStorage.getItem("catan-game-config");
       const legacyStored = sessionStorage.getItem("catan-config");
       if (fullStored) {
@@ -87,7 +105,14 @@ export default function GamePage() {
         initGame({ playerName: "You", botNames: ["Alice", "Bob", "Carol"] });
       }
     }
-  }, [gameState, initGame]);
+  }, [gameState, initGame, setGameState]);
+
+  // Save game state to sessionStorage on every change (for refresh persistence)
+  useEffect(() => {
+    if (gameState) {
+      sessionStorage.setItem("catan-game-state", JSON.stringify(gameState));
+    }
+  }, [gameState]);
 
   // === BOT AUTO-PLAY ===
   useEffect(() => {
@@ -136,7 +161,7 @@ export default function GamePage() {
 
   function playActionSound(actionType: string) {
     switch (actionType) {
-      case "roll-dice": playDiceRoll(); break;
+      case "roll-dice": break; // Handled by DiceDisplay.onAnimationStart
       case "build-road": case "build-settlement": case "build-city": playBuild(); break;
       case "place-settlement": case "place-road": playSetup(); break;
       case "bank-trade": case "offer-trade": playTrade(); break;
@@ -825,10 +850,11 @@ export default function GamePage() {
         buildingStyles={boardBuildingStyles}
         chatLog={gameState.log}
         onSendChat={handleSendChat}
-        onMainMenu={() => { resetGame(); sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); router.push("/"); }}
-        onLobby={() => { resetGame(); sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); sessionStorage.setItem("catan-auto-lobby", "true"); router.push("/"); }}
+        onMainMenu={() => { resetGame(); sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); sessionStorage.removeItem("catan-game-state"); router.push("/"); }}
+        onLobby={() => { resetGame(); sessionStorage.removeItem("catan-game-config"); sessionStorage.removeItem("catan-config"); sessionStorage.removeItem("catan-game-state"); sessionStorage.setItem("catan-auto-lobby", "true"); router.push("/"); }}
         onRestart={() => {
           resetGame();
+          sessionStorage.removeItem("catan-game-state");
           const fullStored = sessionStorage.getItem("catan-game-config");
           const legacyStored = sessionStorage.getItem("catan-config");
           if (fullStored) {
@@ -849,6 +875,7 @@ export default function GamePage() {
         showTradeOverlay={pendingTradeUI !== null || botTradeUI !== null}
         announcement={announcement}
         onDismissAnnouncement={() => setAnnouncement(null)}
+        onDiceAnimationStart={playDiceRoll}
       />
       {gameState.phase === "finished" && (
         <VictoryOverlay

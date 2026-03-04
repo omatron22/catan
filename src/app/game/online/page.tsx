@@ -183,7 +183,7 @@ export default function OnlineGamePage() {
     if (!lastEvents || lastEvents.length === 0 || !gameState) return;
     for (const event of lastEvents) {
       switch (event.type) {
-        case "dice-rolled": playDiceRoll(); break;
+        case "dice-rolled": break; // Sound handled by DiceDisplay.onAnimationStart
         case "settlement-built": case "city-built": case "road-built": playBuild(); break;
         case "trade-completed": playTrade(); break;
         case "robber-moved": playRobber(); break;
@@ -416,10 +416,10 @@ export default function OnlineGamePage() {
               <div className="bg-[#f0e6d0] pixel-border p-4">
                 <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
                 <div className="flex justify-center gap-3 flex-wrap">
-                  <RuleCard label="FRIENDLY ROBBER" active={lobbyConfig?.friendlyRobber ?? false} onClick={isHost ? () => handleUpdateConfig({ friendlyRobber: !(lobbyConfig?.friendlyRobber) }) : undefined} icon="robber" disabled={!isHost} />
-                  <RuleCard label="BALANCED DICE" active={lobbyConfig?.fairDice ?? false} onClick={isHost ? () => handleUpdateConfig({ fairDice: !(lobbyConfig?.fairDice) }) : undefined} icon="dice" disabled={!isHost} />
-                  <RuleCard label="DOUBLES ROLL AGAIN" active={lobbyConfig?.doublesRollAgain ?? false} onClick={isHost ? () => handleUpdateConfig({ doublesRollAgain: !(lobbyConfig?.doublesRollAgain) }) : undefined} icon="doubles" disabled={!isHost} />
-                  <RuleCard label="SHEEP NUKE" active={lobbyConfig?.sheepNuke ?? false} onClick={isHost ? () => handleUpdateConfig({ sheepNuke: !(lobbyConfig?.sheepNuke) }) : undefined} icon="nuke" disabled={!isHost} />
+                  <RuleCard label="FRIENDLY ROBBER" active={lobbyConfig?.friendlyRobber ?? false} onClick={isHost ? () => handleUpdateConfig({ friendlyRobber: !(lobbyConfig?.friendlyRobber) }) : undefined} icon="robber" disabled={!isHost} tooltip="The robber can't target players with 2 or fewer victory points" />
+                  <RuleCard label="BALANCED DICE" active={lobbyConfig?.fairDice ?? false} onClick={isHost ? () => handleUpdateConfig({ fairDice: !(lobbyConfig?.fairDice) }) : undefined} icon="dice" disabled={!isHost} tooltip="Dice rolls follow a balanced distribution instead of pure random — each number appears roughly as often as expected" />
+                  <RuleCard label="DOUBLES ROLL AGAIN" active={lobbyConfig?.doublesRollAgain ?? false} onClick={isHost ? () => handleUpdateConfig({ doublesRollAgain: !(lobbyConfig?.doublesRollAgain) }) : undefined} icon="doubles" disabled={!isHost} tooltip="Rolling doubles lets you take another turn after ending the current one" />
+                  <RuleCard label="SHEEP NUKE" active={lobbyConfig?.sheepNuke ?? false} onClick={isHost ? () => handleUpdateConfig({ sheepNuke: !(lobbyConfig?.sheepNuke) }) : undefined} icon="nuke" disabled={!isHost} tooltip="Spend 8 wool to roll dice and steal all resources of that number from every player" />
                 </div>
               </div>
 
@@ -548,6 +548,7 @@ export default function OnlineGamePage() {
         connected={connected}
         announcement={announcement}
         onDismissAnnouncement={() => setAnnouncement(null)}
+        onDiceAnimationStart={playDiceRoll}
       />
       {gameState.phase === "finished" && (
         <VictoryOverlay

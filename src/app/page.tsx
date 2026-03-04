@@ -551,10 +551,10 @@ export default function Home() {
             <div className="bg-[#f0e6d0] pixel-border p-4">
               <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
               <div className="flex justify-center gap-3 flex-wrap">
-                <RuleCard label="FRIENDLY ROBBER" active={friendlyRobber} onClick={() => { playClick(); setFriendlyRobber(!friendlyRobber); }} icon="robber" />
-                <RuleCard label="BALANCED DICE" active={fairDice} onClick={() => { playClick(); setFairDice(!fairDice); }} icon="dice" />
-                <RuleCard label="DOUBLES ROLL AGAIN" active={doublesRollAgain} onClick={() => { playClick(); setDoublesRollAgain(!doublesRollAgain); }} icon="doubles" />
-                <RuleCard label="SHEEP NUKE" active={sheepNuke} onClick={() => { playClick(); setSheepNuke(!sheepNuke); }} icon="nuke" />
+                <RuleCard label="FRIENDLY ROBBER" active={friendlyRobber} onClick={() => { playClick(); setFriendlyRobber(!friendlyRobber); }} icon="robber" tooltip="The robber can't target players with 2 or fewer victory points" />
+                <RuleCard label="BALANCED DICE" active={fairDice} onClick={() => { playClick(); setFairDice(!fairDice); }} icon="dice" tooltip="Dice rolls follow a balanced distribution instead of pure random — each number appears roughly as often as expected" />
+                <RuleCard label="DOUBLES ROLL AGAIN" active={doublesRollAgain} onClick={() => { playClick(); setDoublesRollAgain(!doublesRollAgain); }} icon="doubles" tooltip="Rolling doubles lets you take another turn after ending the current one" />
+                <RuleCard label="SHEEP NUKE" active={sheepNuke} onClick={() => { playClick(); setSheepNuke(!sheepNuke); }} icon="nuke" tooltip="Spend 8 wool to roll dice and steal all resources of that number from every player" />
               </div>
             </div>
 

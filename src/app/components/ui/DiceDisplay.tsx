@@ -6,6 +6,7 @@ interface Props {
   roll: DiceRoll | null;
   canRoll: boolean;
   onRoll: () => void;
+  onAnimationStart?: () => void;
 }
 
 const PIP_POSITIONS: Record<number, [number, number][]> = {
@@ -16,6 +17,8 @@ const PIP_POSITIONS: Record<number, [number, number][]> = {
   5: [[30, 30], [70, 30], [50, 50], [30, 70], [70, 70]],
   6: [[30, 25], [70, 25], [30, 50], [70, 50], [30, 75], [70, 75]],
 };
+
+const ROLL_ANIMATION_MS = 600;
 
 function randomDie(): number {
   return Math.floor(Math.random() * 6) + 1;
@@ -36,37 +39,66 @@ function DieFace({ value, shaking }: { value: number; shaking?: boolean }) {
   );
 }
 
-export default function DiceDisplay({ roll, canRoll, onRoll }: Props) {
+export default function DiceDisplay({ roll, canRoll, onRoll, onAnimationStart }: Props) {
   const [isRolling, setIsRolling] = useState(false);
   const [rollingValues, setRollingValues] = useState<[number, number]>([1, 1]);
+  const [showResult, setShowResult] = useState<DiceRoll | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resultTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const prevRollRef = useRef<DiceRoll | null>(null);
 
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current);
     };
   }, []);
+
+  // Detect when roll prop changes (bot rolls) — trigger animation
+  useEffect(() => {
+    if (!roll || isRolling) return;
+    if (prevRollRef.current === roll) return;
+    const wasNull = prevRollRef.current === null;
+    prevRollRef.current = roll;
+    // If roll changed from a previous value (bot rolled), show animation
+    if (!wasNull) {
+      setIsRolling(true);
+      onAnimationStart?.();
+      intervalRef.current = setInterval(() => {
+        setRollingValues([randomDie(), randomDie()]);
+      }, 80);
+      timeoutRef.current = setTimeout(() => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        setIsRolling(false);
+        setShowResult(roll);
+      }, ROLL_ANIMATION_MS);
+    } else {
+      setShowResult(roll);
+    }
+  }, [roll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClick = useCallback(() => {
     if (!canRoll || isRolling) return;
 
     setIsRolling(true);
+    onAnimationStart?.();
 
     // Cycle random values every 80ms
     intervalRef.current = setInterval(() => {
       setRollingValues([randomDie(), randomDie()]);
     }, 80);
 
-    // Stop after ~800ms and fire the actual roll
+    // Stop after animation and fire the actual roll
     timeoutRef.current = setTimeout(() => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       intervalRef.current = null;
       setIsRolling(false);
       onRoll();
-    }, 800);
-  }, [canRoll, isRolling, onRoll]);
+    }, ROLL_ANIMATION_MS);
+  }, [canRoll, isRolling, onRoll, onAnimationStart]);
 
   // Rolling animation state
   if (isRolling) {
@@ -79,11 +111,11 @@ export default function DiceDisplay({ roll, canRoll, onRoll }: Props) {
   }
 
   // Show result
-  if (roll) {
+  if (showResult) {
     return (
       <div className="flex items-center gap-1.5">
-        <DieFace value={roll.die1} />
-        <DieFace value={roll.die2} />
+        <DieFace value={showResult.die1} />
+        <DieFace value={showResult.die2} />
       </div>
     );
   }

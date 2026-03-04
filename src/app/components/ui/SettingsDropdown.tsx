@@ -166,7 +166,7 @@ export default function SettingsDropdown({ className = "", onChange }: SettingsD
       {/* Gear button */}
       <button
         onClick={() => { setOpen(!open); }}
-        className="w-9 h-9 flex items-center justify-center bg-black/40 border border-amber-400/50 hover:bg-black/60 transition-colors cursor-pointer"
+        className="w-9 h-9 flex items-center justify-center hover:scale-110 transition-transform cursor-pointer"
         title="Settings"
       >
         <GearIcon />

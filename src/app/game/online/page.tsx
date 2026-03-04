@@ -11,6 +11,7 @@ import {
   playDiceRoll, playBuild, playTrade, playTurnNotification,
   playRobber, playSteal, playEndTurn, playDevCard, playError,
   playChat, playWin, playCollect, playAchievement,
+  startMusic, stopMusic,
 } from "@/app/utils/sounds";
 import type { Announcement } from "@/app/components/ui/AnnouncementOverlay";
 import type { GameAction } from "@/shared/types/actions";
@@ -45,6 +46,14 @@ export default function OnlineGamePage() {
   const [flashingHexes, setFlashingHexes] = useState<Set<HexKey>>(new Set());
   const [localError, setLocalError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+
+  // Keep music playing during online lobby, stop when game starts
+  useEffect(() => {
+    startMusic();
+  }, []);
+  useEffect(() => {
+    if (gameState) stopMusic();
+  }, [gameState]);
 
   // Lobby UI state
   const [colorPickerOpen, setColorPickerOpen] = useState<number | null>(null);

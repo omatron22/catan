@@ -93,7 +93,7 @@ export default function Home() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
 
-  // Start music on first user interaction, stop when leaving page (navigating to game)
+  // Start music on first user interaction (persists across page navigations)
   useEffect(() => {
     const handleInteraction = () => {
       startMusic();
@@ -104,7 +104,6 @@ export default function Home() {
     startMusic();
     return () => {
       window.removeEventListener("click", handleInteraction);
-      stopMusic();
     };
   }, []);
 

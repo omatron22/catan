@@ -12,6 +12,7 @@ import {
   playDiceRoll, playBuild, playTrade, playTurnNotification,
   playRobber, playSteal, playEndTurn, playDevCard, playError,
   playChat, playSetup, playWin, playCollect, playClick, playAchievement,
+  stopMusic,
 } from "@/app/utils/sounds";
 import type { Announcement } from "@/app/components/ui/AnnouncementOverlay";
 import type { GameAction, GameEvent } from "@/shared/types/actions";
@@ -66,6 +67,9 @@ export default function GamePage() {
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const botTimerRef = useRef<NodeJS.Timeout | null>(null);
   const tradeTimersRef = useRef<NodeJS.Timeout[]>([]);
+
+  // Stop lobby music when game starts
+  useEffect(() => { stopMusic(); }, []);
 
   // Initialize game
   useEffect(() => {

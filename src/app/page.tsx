@@ -184,17 +184,19 @@ export default function Home() {
   }
 
   // Socket event listeners for online lobby
+  // IMPORTANT: only depend on [socket] — not mpStore/router, which change often
+  // and would cause listener detach/reattach races where events get missed
   useEffect(() => {
     if (!socket) return;
 
     const onJoined = ({ roomCode, playerIndex, reconnectToken }: { roomCode: string; playerIndex: number; reconnectToken: string }) => {
-      mpStore.setRoomJoined(roomCode, playerIndex, reconnectToken);
+      useMultiplayerStore.getState().setRoomJoined(roomCode, playerIndex, reconnectToken);
       setCreating(false);
       router.push("/game/online");
     };
 
     const onError = ({ message }: { message: string }) => {
-      mpStore.setError(message);
+      useMultiplayerStore.getState().setError(message);
       setCreating(false);
     };
 
@@ -205,7 +207,7 @@ export default function Home() {
       socket.off("room:joined", onJoined);
       socket.off("game:error", onError);
     };
-  }, [socket, router, mpStore]);
+  }, [socket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function createRoom() {
     const name = players[0].name.trim() || "Player";

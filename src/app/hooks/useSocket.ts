@@ -24,8 +24,11 @@ function getSocket(): AnySocket {
   return globalSocket;
 }
 
+// Eagerly create the socket so it's available on first render
+if (typeof window !== "undefined") getSocket();
+
 export function useSocket() {
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(() => globalSocket?.connected ?? false);
 
   useEffect(() => {
     const socket = getSocket();
@@ -33,7 +36,7 @@ export function useSocket() {
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
 
-    // Set initial state
+    // Sync initial state (socket may have connected before this effect ran)
     setConnected(socket.connected);
 
     socket.on("connect", onConnect);

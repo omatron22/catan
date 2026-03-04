@@ -80,18 +80,21 @@ export default function OnlineGamePage() {
   }, [colorPickerOpen]);
 
   // --- Socket event listeners ---
+  // Use getState() in callbacks to avoid stale closures and prevent
+  // listener detach/reattach when the store object changes
   useEffect(() => {
     if (!socket) return;
-    const onJoined = ({ roomCode: code, playerIndex: idx, reconnectToken: token }: { roomCode: string; playerIndex: number; reconnectToken: string }) => mpStore.setRoomJoined(code, idx, token);
-    const onState = ({ state }: { state: ClientGameState }) => mpStore.setGameState(state);
-    const onEvents = ({ events }: { events: import("@/shared/types/actions").GameEvent[] }) => mpStore.setEvents(events);
+    const store = () => useMultiplayerStore.getState();
+    const onJoined = ({ roomCode: code, playerIndex: idx, reconnectToken: token }: { roomCode: string; playerIndex: number; reconnectToken: string }) => store().setRoomJoined(code, idx, token);
+    const onState = ({ state }: { state: ClientGameState }) => store().setGameState(state);
+    const onEvents = ({ events }: { events: import("@/shared/types/actions").GameEvent[] }) => store().setEvents(events);
     const onError = ({ message }: { message: string }) => {
-      if (message === "Room not found") { mpStore.reset(); router.push("/"); return; }
+      if (message === "Room not found") { store().reset(); router.push("/"); return; }
       setLocalError(message); setTimeout(() => setLocalError(null), 3000);
     };
-    const onLobby = (data: { players: LobbyPlayer[]; config: LobbyConfig; hostIndex: number }) => mpStore.setLobbyState(data);
-    const onChat = (msg: { playerIndex: number; playerName: string; text: string; timestamp: number }) => { mpStore.addChatMessage(msg); playChat(); };
-    const onSessionEnded = () => { mpStore.reset(); router.push("/"); };
+    const onLobby = (data: { players: LobbyPlayer[]; config: LobbyConfig; hostIndex: number }) => store().setLobbyState(data);
+    const onChat = (msg: { playerIndex: number; playerName: string; text: string; timestamp: number }) => { store().addChatMessage(msg); playChat(); };
+    const onSessionEnded = () => { store().reset(); router.push("/"); };
 
     socket.on("room:joined", onJoined);
     socket.on("game:state", onState);
@@ -117,10 +120,13 @@ export default function OnlineGamePage() {
   useEffect(() => {
     if (roomCode) { hasEverHadRoom.current = true; return; }
     if (hasEverHadRoom.current) { router.push("/"); return; }
-    // First mount with no roomCode — wait a tick for store to propagate
-    const t = setTimeout(() => { if (!mpStore.roomCode) router.push("/"); }, 100);
+    // First mount with no roomCode — wait for store to propagate
+    // Use getState() to read latest store value (not stale closure)
+    const t = setTimeout(() => {
+      if (!useMultiplayerStore.getState().roomCode) router.push("/");
+    }, 500);
     return () => clearTimeout(t);
-  }, [roomCode, router, mpStore]);
+  }, [roomCode, router]);
 
   // Reconnect after socket disconnect/reconnect (not on initial navigation from home page)
   const didMount = useRef(false);

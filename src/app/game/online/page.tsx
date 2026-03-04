@@ -133,6 +133,17 @@ export default function OnlineGamePage() {
     socket.emit("room:request-state", {});
   }, [socket, connected, roomCode]);
 
+  // Apply saved preferences (color, buildingStyle) on joining a room
+  const prefsApplied = useRef(false);
+  useEffect(() => {
+    if (!socket || !connected || !roomCode || prefsApplied.current) return;
+    const prefs = loadPreferences();
+    if (!prefs) return;
+    prefsApplied.current = true;
+    if (prefs.color) socket.emit("room:update-player", { color: prefs.color });
+    if (prefs.buildingStyle) socket.emit("room:update-player", { buildingStyle: prefs.buildingStyle });
+  }, [socket, connected, roomCode]);
+
   // Reconnect after socket disconnect/reconnect (not on initial navigation from home page)
   const didMount = useRef(false);
   useEffect(() => {

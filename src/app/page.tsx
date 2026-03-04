@@ -626,7 +626,7 @@ export default function Home() {
                 </div>
 
                 {/* Expansion Board */}
-                <div className="text-center">
+                <div className="text-center col-span-2 flex flex-col items-center">
                   <span className="font-pixel text-[8px] text-gray-600 block mb-1">EXPANSION BOARD</span>
                   <ToggleButton value={expansionBoard} onChange={(v) => { playClick(); setExpansionBoard(v); if (!v && players.length > 4) setPlayers(players.slice(0, 4)); }} />
                 </div>

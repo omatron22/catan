@@ -32,6 +32,8 @@ function createGameWithPersonality(id: string, names: string[], personality: Bot
     })),
     fairDice: false,
     friendlyRobber: false,
+    doublesRollAgain: false,
+    sheepNuke: false,
     gameMode: "classic",
     vpToWin: 10,
     turnTimer: 0,

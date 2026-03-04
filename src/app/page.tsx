@@ -43,6 +43,8 @@ export default function Home() {
   ]);
   const [fairDice, setFairDice] = useState(false);
   const [friendlyRobber, setFriendlyRobber] = useState(false);
+  const [doublesRollAgain, setDoublesRollAgain] = useState(false);
+  const [sheepNuke, setSheepNuke] = useState(false);
   const [turnTimer, setTurnTimer] = useState<TurnTimer>(0);
   const [customVp, setCustomVp] = useState(10);
   const [chatMessages, setChatMessages] = useState<{ sender: string; text: string }[]>([]);
@@ -169,6 +171,8 @@ export default function Home() {
       })),
       fairDice,
       friendlyRobber,
+      doublesRollAgain,
+      sheepNuke,
       gameMode: "classic" as const,
       vpToWin,
       turnTimer,
@@ -487,9 +491,11 @@ export default function Home() {
             {/* Rules */}
             <div className="bg-[#f0e6d0] pixel-border p-4">
               <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
-              <div className="flex justify-center gap-3">
+              <div className="flex justify-center gap-3 flex-wrap">
                 <RuleCard label="FRIENDLY ROBBER" active={friendlyRobber} onClick={() => { playClick(); setFriendlyRobber(!friendlyRobber); }} icon="robber" />
                 <RuleCard label="BALANCED DICE" active={fairDice} onClick={() => { playClick(); setFairDice(!fairDice); }} icon="dice" />
+                <RuleCard label="DOUBLES ROLL AGAIN" active={doublesRollAgain} onClick={() => { playClick(); setDoublesRollAgain(!doublesRollAgain); }} icon="doubles" />
+                <RuleCard label="SHEEP NUKE" active={sheepNuke} onClick={() => { playClick(); setSheepNuke(!sheepNuke); }} icon="nuke" />
               </div>
             </div>
 

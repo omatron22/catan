@@ -404,9 +404,11 @@ export default function OnlineGamePage() {
             <div className="flex-1 flex flex-col gap-3 justify-center max-w-xl mx-auto w-full">
               <div className="bg-[#f0e6d0] pixel-border p-4">
                 <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
-                <div className="flex justify-center gap-3">
+                <div className="flex justify-center gap-3 flex-wrap">
                   <RuleCard label="FRIENDLY ROBBER" active={lobbyConfig?.friendlyRobber ?? false} onClick={isHost ? () => handleUpdateConfig({ friendlyRobber: !(lobbyConfig?.friendlyRobber) }) : undefined} icon="robber" disabled={!isHost} />
                   <RuleCard label="BALANCED DICE" active={lobbyConfig?.fairDice ?? false} onClick={isHost ? () => handleUpdateConfig({ fairDice: !(lobbyConfig?.fairDice) }) : undefined} icon="dice" disabled={!isHost} />
+                  <RuleCard label="DOUBLES ROLL AGAIN" active={lobbyConfig?.doublesRollAgain ?? false} onClick={isHost ? () => handleUpdateConfig({ doublesRollAgain: !(lobbyConfig?.doublesRollAgain) }) : undefined} icon="doubles" disabled={!isHost} />
+                  <RuleCard label="SHEEP NUKE" active={lobbyConfig?.sheepNuke ?? false} onClick={isHost ? () => handleUpdateConfig({ sheepNuke: !(lobbyConfig?.sheepNuke) }) : undefined} icon="nuke" disabled={!isHost} />
                 </div>
               </div>
 

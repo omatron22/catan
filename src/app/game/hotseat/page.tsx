@@ -663,13 +663,13 @@ export default function GamePage() {
     const botColor = PLAYER_COLOR_HEX[bot.color];
     const humanCanAfford = canHumanAffordBotTrade();
     return (
-      <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-4 py-3 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
+      <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-4 py-3 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <span className="font-pixel text-[9px] font-bold" style={{ color: botColor }}>{bot.name.toUpperCase()}</span>
             <span className="font-pixel text-[8px] text-gray-700">OFFERS YOU A TRADE:</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1">
               <span className="font-pixel text-[7px] text-red-700 font-bold">YOU GIVE:</span>
               <div className="flex gap-0.5">
@@ -723,15 +723,25 @@ export default function GamePage() {
     !Object.values(pendingTradeUI.counterOffers).some((c) => c != null);
 
   const tradeOverlayNode = pendingTradeUI && gameState.pendingTrade ? (
-    <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-3 py-2 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
-      <div className="flex items-center gap-3">
-        <span className="font-pixel text-[8px] text-gray-700">
-          {!pendingTradeUI.resolved ? "WAITING..." : noDeals ? "" : "CHOOSE:"}
-        </span>
-        {noDeals && (
-          <span className="font-pixel text-[9px] text-red-600 font-bold animate-pulse">NO DEALS</span>
-        )}
-        <div className="flex gap-2">
+    <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-3 py-2 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="font-pixel text-[8px] text-gray-700">
+            {!pendingTradeUI.resolved ? "WAITING..." : noDeals ? "" : "CHOOSE:"}
+          </span>
+          {noDeals && (
+            <span className="font-pixel text-[9px] text-red-600 font-bold animate-pulse">NO DEALS</span>
+          )}
+          {pendingTradeUI.resolved && (
+            <button
+              onClick={declineAllTrades}
+              className="px-3 py-1.5 bg-gray-600 text-white font-pixel text-[7px] border-2 border-black hover:bg-gray-500 ml-auto shrink-0"
+            >
+              CANCEL TRADE
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
           {Object.entries(pendingTradeUI.responses).map(([idxStr, status]) => {
             const idx = Number(idxStr);
             const p = gameState.players[idx];
@@ -740,7 +750,7 @@ export default function GamePage() {
             const counter = pendingTradeUI.counterOffers[idx];
 
             return (
-              <div key={idx} className="flex items-center gap-1.5 px-2 py-1 bg-[#e8d8b8] border border-[#8b7355]">
+              <div key={idx} className="flex flex-wrap items-center gap-1 px-2 py-1 bg-[#e8d8b8] border border-[#8b7355]">
                 <span className="font-pixel text-[8px] font-bold" style={{ color }}>{p.name.toUpperCase()}</span>
                 {status === "pending" && <span className="text-[7px] text-gray-400 animate-pulse">...</span>}
                 {status === "rejected" && !counter && <XMarkPixel size={14} color="#dc2626" />}
@@ -750,7 +760,7 @@ export default function GamePage() {
                     ([r, amt]) => (amt || 0) <= human.resources[r as Resource]
                   );
                   return (
-                    <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
                       <span className="font-pixel text-[6px] text-red-700">GIVE:</span>
                       <div className="flex gap-0.5">
                         {Object.entries(counter.requesting).flatMap(([r, amt]) =>
@@ -796,14 +806,6 @@ export default function GamePage() {
             );
           })}
         </div>
-        {pendingTradeUI.resolved && (
-          <button
-            onClick={declineAllTrades}
-            className="px-3 py-1.5 bg-gray-600 text-white font-pixel text-[7px] border-2 border-black hover:bg-gray-500 ml-auto shrink-0"
-          >
-            CANCEL TRADE
-          </button>
-        )}
       </div>
     </div>
   ) : null;

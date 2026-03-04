@@ -11,6 +11,8 @@ import { filterStateForPlayer } from "./stateFilter.js";
 const DEFAULT_LOBBY_CONFIG: LobbyConfig = {
   fairDice: false,
   friendlyRobber: false,
+  doublesRollAgain: false,
+  sheepNuke: false,
   gameMode: "classic",
   vpToWin: 10,
   turnTimer: 0,

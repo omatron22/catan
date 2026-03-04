@@ -104,7 +104,8 @@ export type TurnPhase =
   | "road-building-1" // playing road building dev card (1st road)
   | "road-building-2" // playing road building dev card (2nd road)
   | "year-of-plenty" // choosing 2 resources
-  | "monopoly"; // choosing resource to monopolize
+  | "monopoly" // choosing resource to monopolize
+  | "sheep-nuke-pick"; // sheep nuke rolled 7, must pick a number
 
 export interface DiceRoll {
   die1: number;

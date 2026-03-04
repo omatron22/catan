@@ -43,6 +43,7 @@ import {
   edgesAtVertex,
   edgeEndpoints,
   hexVertices,
+  hexEdges,
   shuffle,
 } from "@/shared/utils/hexMath";
 import { generateBoard } from "./boardGenerator";
@@ -185,6 +186,10 @@ export function applyAction(state: GameState, action: GameAction): ActionResult 
         return handlePlayYearOfPlenty(state, action.playerIndex, action.resource1, action.resource2);
       case "play-monopoly":
         return handlePlayMonopoly(state, action.playerIndex, action.resource);
+      case "sheep-nuke":
+        return handleSheepNuke(state, action.playerIndex);
+      case "sheep-nuke-pick":
+        return handleSheepNukePick(state, action.playerIndex, action.number);
       case "end-turn":
         return handleEndTurn(state, action.playerIndex);
       default:
@@ -1081,6 +1086,191 @@ function handlePlayMonopoly(state: GameState, playerIndex: number, resource: Res
   return { valid: true, newState, events };
 }
 
+// === Sheep Nuke ===
+
+const SHEEP_NUKE_COST = 10;
+
+function handleSheepNuke(state: GameState, playerIndex: number): ActionResult {
+  if (state.phase !== "main") return { valid: false, error: "Not in main phase" };
+  if (playerIndex !== state.currentPlayerIndex) return { valid: false, error: "Not your turn" };
+  if (state.turnPhase !== "trade-or-build") return { valid: false, error: "Cannot nuke now" };
+  if (!state.config?.sheepNuke) return { valid: false, error: "Sheep nuke is not enabled" };
+
+  const player = state.players[playerIndex];
+  if (player.resources.wool < SHEEP_NUKE_COST) {
+    return { valid: false, error: `Need ${SHEEP_NUKE_COST} wool to sheep nuke` };
+  }
+
+  const newState = cloneState(state);
+  newState.players[playerIndex].resources.wool -= SHEEP_NUKE_COST;
+
+  // Roll dice
+  const die1 = Math.floor(Math.random() * 6) + 1;
+  const die2 = Math.floor(Math.random() * 6) + 1;
+  const total = die1 + die2;
+
+  newState.lastDiceRoll = { die1, die2, total };
+
+  const events: GameEvent[] = [
+    { type: "sheep-nuke-rolled", playerIndex, data: { die1, die2, total } },
+  ];
+
+  newState.log.push({
+    timestamp: Date.now(),
+    playerIndex,
+    message: `${player.name} spent ${SHEEP_NUKE_COST} wool and rolled ${die1} + ${die2} = ${total} for SHEEP NUKE!`,
+    type: "action",
+  });
+
+  if (total === 7) {
+    // Player picks a number
+    newState.turnPhase = "sheep-nuke-pick";
+    newState.log.push({
+      timestamp: Date.now(),
+      playerIndex,
+      message: `${player.name} rolled a 7 — choose a number to destroy!`,
+      type: "action",
+    });
+    return { valid: true, newState, events };
+  }
+
+  // Destroy structures on hexes with this number
+  const destroyEvents = destroyStructuresOnNumber(newState, total, playerIndex);
+  events.push(...destroyEvents);
+
+  newState.turnPhase = "trade-or-build";
+  return { valid: true, newState, events };
+}
+
+function handleSheepNukePick(state: GameState, playerIndex: number, number: number): ActionResult {
+  if (state.phase !== "main") return { valid: false, error: "Not in main phase" };
+  if (playerIndex !== state.currentPlayerIndex) return { valid: false, error: "Not your turn" };
+  if (state.turnPhase !== "sheep-nuke-pick") return { valid: false, error: "Not in sheep nuke pick phase" };
+  if (number < 2 || number > 12 || number === 7) return { valid: false, error: "Invalid number (must be 2-12, not 7)" };
+
+  const newState = cloneState(state);
+
+  newState.log.push({
+    timestamp: Date.now(),
+    playerIndex,
+    message: `${newState.players[playerIndex].name} chose number ${number} to destroy!`,
+    type: "action",
+  });
+
+  const events: GameEvent[] = [];
+  const destroyEvents = destroyStructuresOnNumber(newState, number, playerIndex);
+  events.push(...destroyEvents);
+
+  newState.turnPhase = "trade-or-build";
+  return { valid: true, newState, events };
+}
+
+function destroyStructuresOnNumber(state: GameState, number: number, instigatorIndex: number): GameEvent[] {
+  const events: GameEvent[] = [];
+  const destroyedVertices = new Set<string>();
+  const destroyedEdges = new Set<string>();
+
+  // Find all hexes with this number
+  for (const [hk, hex] of Object.entries(state.board.hexes)) {
+    if (hex.number !== number) continue;
+
+    const parsedHex = parseHexKey(hk);
+
+    // Destroy buildings on vertices of this hex
+    for (const vk of hexVertices(parsedHex)) {
+      if (destroyedVertices.has(vk)) continue;
+      const building = state.board.vertices[vk];
+      if (!building) continue;
+      destroyedVertices.add(vk);
+
+      const owner = state.players[building.playerIndex];
+      if (building.type === "settlement") {
+        owner.settlements = owner.settlements.filter((v) => v !== vk);
+        owner.victoryPoints -= 1;
+      } else if (building.type === "city") {
+        owner.cities = owner.cities.filter((v) => v !== vk);
+        owner.victoryPoints -= 2;
+      }
+      state.board.vertices[vk] = null;
+
+      state.log.push({
+        timestamp: Date.now(),
+        playerIndex: owner.index,
+        message: `${owner.name}'s ${building.type} was destroyed by sheep nuke!`,
+        type: "action",
+      });
+    }
+
+    // Destroy roads on edges of this hex
+    for (const ek of hexEdges(parsedHex)) {
+      if (destroyedEdges.has(ek)) continue;
+      const road = state.board.edges[ek];
+      if (!road) continue;
+      destroyedEdges.add(ek);
+
+      const owner = state.players[road.playerIndex];
+      owner.roads = owner.roads.filter((e) => e !== ek);
+      state.board.edges[ek] = null;
+
+      state.log.push({
+        timestamp: Date.now(),
+        playerIndex: owner.index,
+        message: `${owner.name}'s road was destroyed by sheep nuke!`,
+        type: "action",
+      });
+    }
+  }
+
+  // Update port access for all affected players
+  const affectedPlayers = new Set<number>();
+  for (const vk of destroyedVertices) {
+    // We already cleared the building, but we need to know which player lost port access
+    // Recalculate port access for all players
+    for (const p of state.players) affectedPlayers.add(p.index);
+  }
+  for (const pidx of affectedPlayers) {
+    recalculatePortAccess(state, pidx);
+  }
+
+  // Update longest road for all players (roads were destroyed)
+  if (destroyedEdges.size > 0) {
+    const roadResult = updateLongestRoad(state);
+    updateLongestRoadState(state, roadResult, events);
+  }
+
+  const totalDestroyed = destroyedVertices.size + destroyedEdges.size;
+  events.push({
+    type: "sheep-nuke-destroyed",
+    playerIndex: instigatorIndex,
+    data: { number, buildingsDestroyed: destroyedVertices.size, roadsDestroyed: destroyedEdges.size },
+  });
+
+  if (totalDestroyed === 0) {
+    state.log.push({
+      timestamp: Date.now(),
+      playerIndex: instigatorIndex,
+      message: `Sheep nuke on ${number} — nothing was destroyed!`,
+      type: "action",
+    });
+  }
+
+  return events;
+}
+
+function recalculatePortAccess(state: GameState, playerIndex: number): void {
+  const player = state.players[playerIndex];
+  const newPorts: Set<string> = new Set();
+  for (const port of state.board.ports) {
+    for (const vk of port.edgeVertices) {
+      const building = state.board.vertices[vk];
+      if (building && building.playerIndex === playerIndex) {
+        newPorts.add(port.type);
+      }
+    }
+  }
+  player.portsAccess = Array.from(newPorts) as typeof player.portsAccess;
+}
+
 // === Turn management ===
 
 function handleEndTurn(state: GameState, playerIndex: number): ActionResult {
@@ -1098,6 +1288,25 @@ function handleEndTurn(state: GameState, playerIndex: number): ActionResult {
 
   // Cancel any pending trade
   newState.pendingTrade = null;
+
+  // Doubles roll again: if enabled and last roll was doubles, same player rolls again
+  const doublesRollAgain = newState.config?.doublesRollAgain &&
+    newState.lastDiceRoll &&
+    newState.lastDiceRoll.die1 === newState.lastDiceRoll.die2;
+
+  if (doublesRollAgain) {
+    newState.turnPhase = "roll";
+    newState.lastDiceRoll = null;
+
+    const events: GameEvent[] = [{ type: "doubles-roll-again", playerIndex }];
+    newState.log.push({
+      timestamp: Date.now(),
+      playerIndex,
+      message: `${player.name} rolled doubles — rolling again!`,
+      type: "action",
+    });
+    return { valid: true, newState, events };
+  }
 
   // Advance to next player
   newState.currentPlayerIndex = (playerIndex + 1) % newState.players.length;

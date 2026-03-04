@@ -5,6 +5,8 @@ import type { GameMode, TurnTimer } from "./config";
 export interface LobbyConfig {
   fairDice: boolean;
   friendlyRobber: boolean;
+  doublesRollAgain: boolean;
+  sheepNuke: boolean;
   gameMode: GameMode;
   vpToWin: number;
   turnTimer: TurnTimer;

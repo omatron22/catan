@@ -25,6 +25,8 @@ export interface GameConfig {
   players: PlayerConfig[];
   fairDice: boolean;
   friendlyRobber: boolean;
+  doublesRollAgain: boolean;
+  sheepNuke: boolean;
   gameMode: GameMode;
   vpToWin: number;
   turnTimer: TurnTimer;

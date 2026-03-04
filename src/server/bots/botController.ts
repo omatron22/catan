@@ -11,6 +11,9 @@ import {
   edgesAtVertex,
   edgeEndpoints,
   adjacentVertices,
+  hexVertices,
+  hexEdges,
+  parseHexKey,
 } from "@/shared/utils/hexMath";
 
 /**
@@ -56,6 +59,8 @@ export function decideBotAction(state: GameState, botIndex: number): GameAction 
     case "road-building-1":
     case "road-building-2":
       return makeRoadBuildingAction(state, botIndex, context);
+    case "sheep-nuke-pick":
+      return makeSheepNukePickAction(state, botIndex, context);
     case "monopoly":
     case "year-of-plenty":
       return null; // These are handled by dev card play
@@ -297,6 +302,44 @@ function makeRoadBuildingAction(state: GameState, botIndex: number, context: Bot
   return { type: "end-turn", playerIndex: botIndex };
 }
 
+function makeSheepNukePickAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
+  // Pick the number that maximizes opponent damage minus self-damage
+  const candidates = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
+  let bestNumber = candidates[0];
+  let bestScore = -Infinity;
+
+  for (const num of candidates) {
+    let opponentDamage = 0;
+    let selfDamage = 0;
+
+    for (const [hk, hex] of Object.entries(state.board.hexes)) {
+      if (hex.number !== num) continue;
+      const parsedHex = parseHexKey(hk);
+      for (const vk of hexVertices(parsedHex)) {
+        const building = state.board.vertices[vk];
+        if (!building) continue;
+        const vp = building.type === "city" ? 2 : 1;
+        if (building.playerIndex === botIndex) selfDamage += vp;
+        else opponentDamage += vp;
+      }
+      for (const ek of hexEdges(parsedHex)) {
+        const road = state.board.edges[ek];
+        if (!road) continue;
+        if (road.playerIndex === botIndex) selfDamage += 0.3;
+        else opponentDamage += 0.3;
+      }
+    }
+
+    const score = opponentDamage - selfDamage * 1.5;
+    if (score > bestScore) {
+      bestScore = score;
+      bestNumber = num;
+    }
+  }
+
+  return { type: "sheep-nuke-pick", playerIndex: botIndex, number: bestNumber };
+}
+
 function canAfford(
   player: { resources: Record<Resource, number> },
   cost: Partial<Record<Resource, number>>
@@ -340,6 +383,13 @@ export function generateBotCounterOffer(
   try {
     const context = computeStrategicContext(state, botIndex);
     counterChance = context.weights.counterOfferChance;
+
+    // VP gate: don't counter-offer to players who are winning
+    if (shouldRejectLeaderTrade(state, trade.fromPlayer, context)) return null;
+    if (context.isEndgame) {
+      const fromThreat = context.playerThreats.find((t) => t.playerIndex === trade.fromPlayer);
+      if (fromThreat && fromThreat.visibleVP >= context.vpToWin - 2) return null;
+    }
 
     if (Math.random() > counterChance) return null;
 

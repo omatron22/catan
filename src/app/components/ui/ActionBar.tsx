@@ -120,6 +120,32 @@ export default function ActionBar({
         );
       })}
 
+      {/* Sheep Nuke */}
+      {gameState.config?.sheepNuke && (
+        <button
+          onClick={() => onAction({ type: "sheep-nuke", playerIndex: localPlayerIndex })}
+          disabled={player.resources.wool < 10}
+          title="Sheep Nuke (10 Wool) — roll dice to destroy structures!"
+          className={`w-11 h-11 md:w-14 md:h-14 flex flex-col items-center justify-center pixel-btn text-white ${
+            player.resources.wool < 10 ? "opacity-40 cursor-not-allowed" : ""
+          }`}
+          style={{ backgroundColor: player.resources.wool >= 10 ? "#dc2626" : "#666" }}
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" shapeRendering="crispEdges">
+            <rect x="7" y="5" width="6" height="6" fill="white" />
+            <rect x="5" y="7" width="2" height="2" fill="white" />
+            <rect x="13" y="7" width="2" height="2" fill="white" />
+            <rect x="3" y="3" width="2" height="2" fill="#fbbf24" />
+            <rect x="15" y="3" width="2" height="2" fill="#fbbf24" />
+            <rect x="3" y="13" width="2" height="2" fill="#fbbf24" />
+            <rect x="15" y="13" width="2" height="2" fill="#fbbf24" />
+            <rect x="9" y="1" width="2" height="2" fill="#fbbf24" />
+            <rect x="9" y="15" width="2" height="2" fill="#fbbf24" />
+          </svg>
+          <span className="font-pixel text-[5px]">NUKE</span>
+        </button>
+      )}
+
       {/* End Turn */}
       <button
         onClick={() => onAction({ type: "end-turn", playerIndex: localPlayerIndex })}

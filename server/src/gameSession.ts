@@ -36,6 +36,8 @@ export function handleStartGame(io: TypedServer, socket: TypedSocket) {
     })),
     fairDice: room.lobbyConfig.fairDice,
     friendlyRobber: room.lobbyConfig.friendlyRobber,
+    doublesRollAgain: room.lobbyConfig.doublesRollAgain,
+    sheepNuke: room.lobbyConfig.sheepNuke,
     gameMode: room.lobbyConfig.gameMode,
     vpToWin: room.lobbyConfig.vpToWin,
     turnTimer: room.lobbyConfig.turnTimer,

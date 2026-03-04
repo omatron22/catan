@@ -126,6 +126,19 @@ export interface PlayMonopolyAction {
   resource: Resource;
 }
 
+// === Sheep Nuke ===
+
+export interface SheepNukeAction {
+  type: "sheep-nuke";
+  playerIndex: number;
+}
+
+export interface SheepNukePickAction {
+  type: "sheep-nuke-pick";
+  playerIndex: number;
+  number: number; // 2-12, the hex number to destroy
+}
+
 // === Turn Management ===
 
 export interface EndTurnAction {
@@ -153,6 +166,8 @@ export type GameAction =
   | PlayRoadBuildingAction
   | PlayYearOfPlentyAction
   | PlayMonopolyAction
+  | SheepNukeAction
+  | SheepNukePickAction
   | EndTurnAction;
 
 export type GameEventType =
@@ -173,7 +188,10 @@ export type GameEventType =
   | "longest-road-changed"
   | "largest-army-changed"
   | "game-won"
-  | "turn-ended";
+  | "turn-ended"
+  | "doubles-roll-again"
+  | "sheep-nuke-rolled"
+  | "sheep-nuke-destroyed";
 
 export interface GameEvent {
   type: GameEventType;

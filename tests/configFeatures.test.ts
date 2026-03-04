@@ -15,6 +15,8 @@ function makeConfig(overrides: Partial<GameConfig> = {}): GameConfig {
     ],
     fairDice: false,
     friendlyRobber: false,
+    doublesRollAgain: false,
+    sheepNuke: false,
     gameMode: "classic",
     vpToWin: 10,
     turnTimer: 0,

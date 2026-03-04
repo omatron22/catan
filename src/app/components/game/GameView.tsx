@@ -377,6 +377,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
       case "trade-or-build": phaseText = "TRADE OR BUILD"; break;
       case "road-building-1": phaseText = "PLACE ROAD 1/2"; break;
       case "road-building-2": phaseText = "PLACE ROAD 2/2"; break;
+      case "sheep-nuke-pick": phaseText = "CHOOSE NUMBER TO DESTROY"; break;
     }
   } else {
     phaseText = `${currentPlayer.name.toUpperCase()} THINKING...`;
@@ -467,12 +468,12 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             {/* Left side: trade panels */}
             <div className="flex flex-col gap-2">
               {showTradeStrip && (
-                <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-2 py-1.5 pointer-events-auto" style={{ backdropFilter: "blur(4px)" }}>
+                <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-2 py-1.5 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
                   <div className="flex flex-col gap-1">
                     {/* GIVE row (top) */}
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[7px] text-green-700 font-bold w-7">GIVE:</span>
-                      <div className="flex items-center gap-0.5 min-w-[60px]">
+                      <span className="text-[7px] text-green-700 font-bold w-7 shrink-0">GIVE:</span>
+                      <div className="flex items-center gap-0.5 flex-wrap min-w-[40px]">
                         {trade.offering.length === 0 ? (
                           <span className="text-[6px] text-gray-500">click cards</span>
                         ) : (
@@ -484,8 +485,8 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                     </div>
 
                     {/* GET row (bottom) */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[7px] text-red-700 font-bold w-7">GET:</span>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[7px] text-red-700 font-bold w-7 shrink-0">GET:</span>
                       <div className="flex gap-0.5">
                         {ALL_RESOURCES.map((res) => (
                           <button
@@ -499,7 +500,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                           </button>
                         ))}
                       </div>
-                      <div className="flex items-center gap-0.5 min-w-[60px]">
+                      <div className="flex items-center gap-0.5 flex-wrap min-w-[40px]">
                         {trade.requesting.length === 0 ? (
                           <span className="text-[6px] text-gray-500">click +</span>
                         ) : (
@@ -508,52 +509,52 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                           ))
                         )}
                       </div>
+                    </div>
 
-                      {/* Action buttons */}
-                      <div className="flex gap-1 ml-auto">
-                        {/* Bank trade button */}
-                        {(() => {
-                          const bankValid = bankInfo &&
-                            trade.requesting.length > 0 &&
-                            trade.requesting.length === bankInfo.receivingCount &&
-                            !trade.requesting.some((r) => r === bankInfo.giving);
-                          return bankInfo ? (
-                            <button
-                              onClick={bankValid ? handleBankTradeSimple : undefined}
-                              disabled={!bankValid}
-                              className={`px-2 py-1 text-[7px] pixel-btn ${
-                                bankValid
-                                  ? "bg-amber-600 text-white"
-                                  : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
-                              }`}
-                              title={bankValid
-                                ? `Bank trade ${bankInfo.ratio}:1 — click to execute`
-                                : `Select ${bankInfo.receivingCount} resource(s) to receive (${bankInfo.ratio}:1)`}
-                            >
-                              BANK
-                            </button>
-                          ) : null;
-                        })()}
+                    {/* Action buttons row */}
+                    <div className="flex gap-1 justify-end">
+                      {/* Bank trade button */}
+                      {(() => {
+                        const bankValid = bankInfo &&
+                          trade.requesting.length > 0 &&
+                          trade.requesting.length === bankInfo.receivingCount &&
+                          !trade.requesting.some((r) => r === bankInfo.giving);
+                        return bankInfo ? (
+                          <button
+                            onClick={bankValid ? handleBankTradeSimple : undefined}
+                            disabled={!bankValid}
+                            className={`px-2 py-1 text-[7px] pixel-btn ${
+                              bankValid
+                                ? "bg-amber-600 text-white"
+                                : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
+                            }`}
+                            title={bankValid
+                              ? `Bank trade ${bankInfo.ratio}:1 — click to execute`
+                              : `Select ${bankInfo.receivingCount} resource(s) to receive (${bankInfo.ratio}:1)`}
+                          >
+                            BANK
+                          </button>
+                        ) : null;
+                      })()}
 
-                        <button
-                          onClick={handlePlayerTrade}
-                          disabled={trade.offering.length === 0 || trade.requesting.length === 0}
-                          className={`px-2 py-1 text-[7px] pixel-btn ${
-                            trade.offering.length > 0 && trade.requesting.length > 0
-                              ? "bg-green-600 text-white"
-                              : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
-                          }`}
-                        >
-                          OFFER
-                        </button>
+                      <button
+                        onClick={handlePlayerTrade}
+                        disabled={trade.offering.length === 0 || trade.requesting.length === 0}
+                        className={`px-2 py-1 text-[7px] pixel-btn ${
+                          trade.offering.length > 0 && trade.requesting.length > 0
+                            ? "bg-green-600 text-white"
+                            : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
+                        }`}
+                      >
+                        OFFER
+                      </button>
 
-                        <button
-                          onClick={() => trade.closeTrade()}
-                          className="px-1.5 py-1 text-[7px] text-gray-600 pixel-btn bg-[#d4c4a8] hover:bg-[#c4b498]"
-                        >
-                          X
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => trade.closeTrade()}
+                        className="px-1.5 py-1 text-[7px] text-gray-600 pixel-btn bg-[#d4c4a8] hover:bg-[#c4b498]"
+                      >
+                        X
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -872,6 +873,40 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           onAction={onAction}
           onClose={() => setActiveAction(null)}
         />
+      )}
+
+      {/* Sheep Nuke number picker */}
+      {gameState.turnPhase === "sheep-nuke-pick" && isMyTurn && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative border-4 border-[#5a3e28] p-5"
+            style={{
+              backgroundColor: "#f0e6d0",
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='6' height='6' fill='%23f0e6d0'/%3E%3Crect x='0' y='0' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3C/svg%3E")`,
+              backgroundSize: "6px 6px",
+              boxShadow: "6px 6px 0 #000, inset 0 0 20px rgba(139,115,85,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center mb-3">
+              <div className="font-pixel text-[12px] text-red-700">SHEEP NUKE</div>
+              <div className="font-pixel text-[8px] text-gray-600 mt-1">You rolled a 7 — pick a number to destroy!</div>
+              <div className="mt-1 h-[2px] bg-[#8b7355] mx-4" />
+            </div>
+            <div className="grid grid-cols-5 gap-2 max-w-xs mx-auto">
+              {[2, 3, 4, 5, 6, 8, 9, 10, 11, 12].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => onAction({ type: "sheep-nuke-pick", playerIndex: myPlayerIndex, number: n })}
+                  className="w-12 h-12 flex items-center justify-center border-2 border-black font-pixel text-[14px] text-gray-900 pixel-btn bg-amber-400 hover:bg-red-500 hover:text-white transition-colors"
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Game menu overlay */}

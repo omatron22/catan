@@ -297,7 +297,30 @@ export default function Home() {
         <CloudLayer />
 
         {/* Settings gear */}
-        <SettingsDropdown className="absolute top-4 right-4 z-20" />
+        <SettingsDropdown
+          className="absolute top-4 right-4 z-20"
+          onChange={(prefs) => {
+            if (prefs.name !== undefined || prefs.color !== undefined) {
+              setPlayers((prev) => {
+                const updated = [...prev];
+                const p0 = { ...updated[0] };
+                if (prefs.name !== undefined) p0.name = prefs.name;
+                if (prefs.color !== undefined) {
+                  const conflictIdx = updated.findIndex((p, i) => i !== 0 && p.color === prefs.color);
+                  if (conflictIdx !== -1) {
+                    updated[conflictIdx] = { ...updated[conflictIdx], color: p0.color };
+                  }
+                  p0.color = prefs.color;
+                }
+                updated[0] = p0;
+                return updated;
+              });
+            }
+            if (prefs.buildingStyle) {
+              setBuildingStyles((prev) => ({ ...prev, [0]: prefs.buildingStyle as BuildingStyle }));
+            }
+          }}
+        />
 
         {/* Title + play button */}
         <div className="relative z-10 flex flex-col items-center">

@@ -46,7 +46,7 @@ export default function DiscardDialog({ player, playerIndex, onAction }: Props) 
           You have {total} cards. Discard {discardAmount}. ({currentDiscard}/{discardAmount})
         </p>
 
-        <div className="flex gap-4 justify-center mb-4">
+        <div className="flex flex-wrap gap-3 md:gap-4 justify-center mb-4">
           {ALL_RESOURCES.map((res) => (
             <div key={res} className="flex flex-col items-center gap-1">
               <ResourceIcon resource={res} size={24} />

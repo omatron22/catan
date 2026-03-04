@@ -235,7 +235,7 @@ export default function Home() {
 
   if (!showLobby) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative">
+      <main className="min-h-screen flex items-center justify-center bg-[#2a6ab5] overflow-hidden relative px-4">
         <CloudLayer />
 
         {/* Audio controls */}
@@ -244,7 +244,7 @@ export default function Home() {
         {/* Title + play button */}
         <div className="relative z-10 flex flex-col items-center">
           <h1
-            className="font-pixel text-[90px] text-amber-400 mb-16 tracking-wider leading-none"
+            className="font-pixel text-[40px] md:text-[90px] text-amber-400 mb-8 md:mb-16 tracking-wider leading-none text-center"
             style={{ textShadow: "6px 6px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000" }}
           >
             ERFINDUNG
@@ -252,7 +252,7 @@ export default function Home() {
 
           <button
             onClick={() => { playNavigate(); setShowLobby(true); }}
-            className="px-14 py-5 bg-amber-400 text-gray-900 font-pixel text-[20px] pixel-btn start-pulse"
+            className="px-10 md:px-14 py-4 md:py-5 bg-amber-400 text-gray-900 font-pixel text-[16px] md:text-[20px] pixel-btn start-pulse"
           >
             PLAY
           </button>
@@ -286,10 +286,10 @@ export default function Home() {
       {/* Audio controls */}
       <AudioControls className="absolute top-4 right-4 z-20" />
 
-      {/* Main 3-column layout */}
-      <div className="relative z-10 flex flex-1 min-h-0 items-center px-0">
+      {/* Main layout: 3-column on desktop, vertical scroll on mobile */}
+      <div className="relative z-10 flex flex-col md:flex-row flex-1 min-h-0 md:items-center px-3 md:px-0 overflow-y-auto md:overflow-y-hidden pt-10 md:pt-0 pb-4 md:pb-0 gap-3 md:gap-0">
         {/* ===== LEFT — Players ===== */}
-        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 flex flex-col h-[440px]">
+        <div className="w-full md:w-60 shrink-0 bg-[#f0e6d0] pixel-border md:ml-3 flex flex-col max-h-[70vh] md:h-[440px]">
           <div className="px-4 pt-3 pb-2">
             <h2 className="font-pixel text-[9px] text-gray-700">
               PLAYERS ({players.length}/{expansionBoard ? 6 : 4})
@@ -482,7 +482,7 @@ export default function Home() {
         </div>
 
         {/* ===== CENTER — Settings + Start ===== */}
-        <div className="flex-1 flex flex-col min-w-0 px-6 py-4">
+        <div className="flex-1 flex flex-col min-w-0 px-3 md:px-6 py-4">
           <div className="flex-1 flex flex-col gap-3 justify-center max-w-xl mx-auto w-full">
             {/* Rules */}
             <div className="bg-[#f0e6d0] pixel-border p-4">
@@ -605,8 +605,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ===== RIGHT — Chat ===== */}
-        <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 flex flex-col h-[440px]">
+        {/* ===== RIGHT — Chat (hidden on mobile) ===== */}
+        <div className="hidden md:flex w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 flex-col h-[440px]">
           <div className="px-4 pt-3 pb-2">
             <h2 className="font-pixel text-[9px] text-gray-700 text-center">CHAT</h2>
           </div>
@@ -647,8 +647,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Fun facts ticker at the bottom */}
-      <div className="relative z-10 w-full py-2 overflow-hidden">
+      {/* Fun facts ticker at the bottom (hidden on mobile) */}
+      <div className="relative z-10 w-full py-2 overflow-hidden hidden md:block">
         <div className="lobby-ticker whitespace-nowrap font-pixel text-[10px] text-amber-300/70">
           <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
           <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>

@@ -111,6 +111,9 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   const [volume, setVolume] = useState(getMasterVolume());
   const isOnline = connected !== undefined;
 
+  // --- Mobile sidebar toggle ---
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
   // --- Active action state ---
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
@@ -318,8 +321,10 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   }
 
   // --- Requesting resource (with optional hotseat validation guard) ---
+  // Skip the guard for bank trades — the bank has unlimited resources
   function handleAddToRequesting(resource: Resource) {
-    if (onAddToRequesting && !onAddToRequesting(resource)) return;
+    const isBankTrade = !!trade.getBankTradeInfo();
+    if (!isBankTrade && onAddToRequesting && !onAddToRequesting(resource)) return;
     trade.addToRequesting(resource);
   }
 
@@ -396,7 +401,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   return (
     <div className="h-screen flex overflow-hidden bg-[#2a6ab5]">
       {/* Left column: board + trade strips + bottom bar */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Board */}
         <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 overflow-hidden relative">
           <HexBoard
@@ -415,23 +420,23 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           />
 
           {/* Turn/phase status overlay */}
-          <div className="absolute top-32 left-4 z-10 pointer-events-none" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 14px rgba(0,0,0,0.7))" }}>
+          <div className="absolute top-16 md:top-32 left-2 md:left-4 right-12 md:right-auto z-10 pointer-events-none" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 14px rgba(0,0,0,0.7))" }}>
             {needsDiscard ? (
-              <div className="font-pixel text-[18px] text-red-400">SELECT CARDS TO DISCARD</div>
+              <div className="font-pixel text-[14px] md:text-[18px] text-red-400">SELECT CARDS TO DISCARD</div>
             ) : (
               <>
-                <div className={`font-pixel text-[28px] leading-none ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
+                <div className={`font-pixel text-[18px] md:text-[28px] leading-none ${isMyTurn ? "text-yellow-300" : "text-gray-400"}`}>
                   {isMyTurn ? "YOUR TURN" : `${currentPlayer.name.toUpperCase()}'S TURN`}
                 </div>
-                <div className="font-pixel text-[16px] text-white/80 mt-1">
+                <div className="font-pixel text-[12px] md:text-[16px] text-white/80 mt-1">
                   {phaseText}
                   {botThinking && !isMyTurn && (
                     <span className="animate-pulse ml-1">...</span>
                   )}
                 </div>
-                {error && <div className="font-pixel text-[14px] text-red-400 mt-1">{error}</div>}
+                {error && <div className="font-pixel text-[10px] md:text-[14px] text-red-400 mt-1">{error}</div>}
                 {connected === false && (
-                  <div className="font-pixel text-[14px] text-red-400 mt-1 animate-pulse">RECONNECTING...</div>
+                  <div className="font-pixel text-[10px] md:text-[14px] text-red-400 mt-1 animate-pulse">RECONNECTING...</div>
                 )}
               </>
             )}
@@ -576,7 +581,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
           {/* Steal target buttons — floating bottom-left */}
           {needsStealTarget && (
-            <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2">
+            <div className="absolute bottom-3 left-3 right-3 md:right-auto z-20 flex flex-wrap items-center gap-2">
               <span className="font-pixel text-[10px] text-amber-300" style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>STEAL FROM:</span>
               {stealTargets.map((targetIdx) => (
                 <button
@@ -600,7 +605,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
         {/* Discard overlay — floats above the brick bar */}
         {needsDiscard && (
-          <div className="flex-shrink-0 relative z-10 mx-2 mb-1" style={{ maxWidth: "calc(100% - 160px)" }}>
+          <div className="flex-shrink-0 relative z-10 mx-2 mb-1 max-w-full md:max-w-[calc(100%-160px)]">
             <div className="flex items-center gap-2 bg-red-900/90 border-2 border-red-500 px-3 py-2" style={{ imageRendering: "pixelated", boxShadow: "3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000" }}>
               <span className="font-pixel text-[8px] text-red-300 shrink-0">
                 DISCARD {currentDiscardCount}/{discardAmount}
@@ -633,7 +638,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
         {/* Bottom bar — cobblestone wall */}
         <div
-          className="h-20 flex-shrink-0 flex items-center px-2 gap-2 relative"
+          className="h-16 md:h-20 flex-shrink-0 flex items-center px-2 gap-1 md:gap-2 relative overflow-x-auto"
           style={{
             backgroundColor: "#6b5840",
             backgroundImage: `
@@ -774,8 +779,31 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
         </div>
       </div>
 
-      {/* Right sidebar */}
-      <div className="w-72 flex flex-col bg-[#f0e6d0] border-l-4 border-black">
+      {/* Mobile sidebar toggle button */}
+      <button
+        onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+        className="md:hidden fixed top-12 right-2 z-40 w-9 h-9 flex items-center justify-center bg-[#f0e6d0]/90 border-2 border-[#8b7355] pixel-border-sm"
+        title="Toggle info panel"
+      >
+        <span className="font-pixel text-[8px] text-gray-700">{mobileSidebarOpen ? "X" : "i"}</span>
+      </button>
+
+      {/* Mobile sidebar backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/40"
+          style={{ zIndex: 25 }}
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Right sidebar — slide-in drawer on mobile, fixed on desktop */}
+      <div className={`
+        fixed md:relative inset-y-0 right-0 z-30
+        w-64 md:w-72 flex flex-col bg-[#f0e6d0] border-l-4 border-black
+        transition-transform duration-200 ease-in-out
+        ${mobileSidebarOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
+      `}>
         <ChatBox
           log={chatLog}
           playerColors={gameState.players.map((p) => p.color)}

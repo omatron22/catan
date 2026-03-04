@@ -274,17 +274,17 @@ export default function OnlineGamePage() {
 
         {/* Room code header */}
         <div className="relative z-10 w-full pt-10 pb-2">
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex items-center justify-center gap-2 md:gap-3 flex-wrap px-4">
             <span className="font-pixel text-[10px] text-white/70">ROOM CODE</span>
             <span className="font-pixel text-[20px] text-amber-300 tracking-[0.3em]" style={{ textShadow: "2px 2px 0 #000" }}>{roomCode}</span>
             <button onClick={() => navigator.clipboard.writeText(shareUrl)} className="px-3 py-1 bg-white/20 border-2 border-white/40 font-pixel text-[7px] text-white hover:bg-white/30 transition-colors" title="Copy invite link">COPY LINK</button>
           </div>
         </div>
 
-        {/* Main 3-column layout */}
-        <div className="relative z-10 flex flex-1 min-h-0 items-center px-0">
+        {/* Main layout: 3-column on desktop, vertical scroll on mobile */}
+        <div className="relative z-10 flex flex-col md:flex-row flex-1 min-h-0 md:items-center px-3 md:px-0 overflow-y-auto md:overflow-y-hidden pb-4 md:pb-0 gap-3 md:gap-0">
           {/* LEFT — Players */}
-          <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border ml-3 flex flex-col h-[440px]">
+          <div className="w-full md:w-60 shrink-0 bg-[#f0e6d0] pixel-border md:ml-3 flex flex-col max-h-[60vh] md:h-[440px]">
             <div className="px-4 pt-3 pb-2">
               <h2 className="font-pixel text-[9px] text-gray-700">PLAYERS ({lobbyPlayers.length}/{isExpansion ? 6 : 4})</h2>
             </div>
@@ -400,7 +400,7 @@ export default function OnlineGamePage() {
           </div>
 
           {/* CENTER — Settings + Start */}
-          <div className="flex-1 flex flex-col min-w-0 px-6 py-4">
+          <div className="flex-1 flex flex-col min-w-0 px-3 md:px-6 py-4">
             <div className="flex-1 flex flex-col gap-3 justify-center max-w-xl mx-auto w-full">
               <div className="bg-[#f0e6d0] pixel-border p-4">
                 <h2 className="font-pixel text-[9px] text-gray-700 mb-3 text-center">RULES</h2>
@@ -462,8 +462,8 @@ export default function OnlineGamePage() {
             </div>
           </div>
 
-          {/* RIGHT — Chat */}
-          <div className="w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 flex flex-col h-[440px]">
+          {/* RIGHT — Chat (hidden on mobile) */}
+          <div className="hidden md:flex w-60 shrink-0 bg-[#f0e6d0] pixel-border mr-3 flex-col h-[440px]">
             <div className="px-4 pt-3 pb-2">
               <h2 className="font-pixel text-[9px] text-gray-700 text-center">CHAT</h2>
             </div>
@@ -485,8 +485,8 @@ export default function OnlineGamePage() {
           </div>
         </div>
 
-        {/* Fun facts ticker at the bottom */}
-        <div className="relative z-10 w-full py-2 overflow-hidden">
+        {/* Fun facts ticker at the bottom (hidden on mobile) */}
+        <div className="relative z-10 w-full py-2 overflow-hidden hidden md:block">
           <div className="lobby-ticker whitespace-nowrap font-pixel text-[10px] text-amber-300/60">
             <span className="mx-8">A medieval knight&apos;s armor weighed about 50 pounds</span>
             <span className="mx-8">Wool was medieval Europe&apos;s most traded commodity</span>

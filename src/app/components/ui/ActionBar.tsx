@@ -105,7 +105,7 @@ export default function ActionBar({
             }}
             disabled={!enabled}
             title={action.title}
-            className={`w-14 h-14 flex flex-col items-center justify-center gap-0.5 pixel-btn text-white ${
+            className={`w-11 h-11 md:w-14 md:h-14 flex flex-col items-center justify-center gap-0.5 pixel-btn text-white ${
               isActive
                 ? "translate-x-[2px] translate-y-[2px] !shadow-[1px_1px_0_#000]"
                 : !enabled
@@ -124,7 +124,7 @@ export default function ActionBar({
       <button
         onClick={() => onAction({ type: "end-turn", playerIndex: localPlayerIndex })}
         title="End Turn"
-        className="w-14 h-14 flex flex-col items-center justify-center pixel-btn text-white"
+        className="w-11 h-11 md:w-14 md:h-14 flex flex-col items-center justify-center pixel-btn text-white"
         style={{ backgroundColor: ACTION_COLORS["end-turn"] }}
       >
         <EndTurnPixel size={20} color="white" />

@@ -744,28 +744,43 @@ export default function GamePage() {
                 <span className="font-pixel text-[8px] font-bold" style={{ color }}>{p.name.toUpperCase()}</span>
                 {status === "pending" && <span className="text-[7px] text-gray-400 animate-pulse">...</span>}
                 {status === "rejected" && !counter && <XMarkPixel size={14} color="#dc2626" />}
-                {status === "rejected" && counter && pendingTradeUI.resolved && (
-                  <div className="flex items-center gap-1">
-                    <span className="font-pixel text-[6px] text-red-700">GIVE:</span>
-                    <div className="flex gap-0.5">
-                      {Object.entries(counter.requesting).flatMap(([r, amt]) =>
-                        Array.from({ length: amt! }, (_, i) => (
-                          <MiniCard key={`cr-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="red" />
-                        ))
-                      )}
+                {status === "rejected" && counter && pendingTradeUI.resolved && (() => {
+                  const human = gameState.players[HUMAN_PLAYER_INDEX];
+                  const canAfford = Object.entries(counter.requesting).every(
+                    ([r, amt]) => (amt || 0) <= human.resources[r as Resource]
+                  );
+                  return (
+                    <div className="flex items-center gap-1">
+                      <span className="font-pixel text-[6px] text-red-700">GIVE:</span>
+                      <div className="flex gap-0.5">
+                        {Object.entries(counter.requesting).flatMap(([r, amt]) =>
+                          Array.from({ length: amt! }, (_, i) => (
+                            <MiniCard key={`cr-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="red" />
+                          ))
+                        )}
+                      </div>
+                      <span className="text-[8px] text-gray-400">&rarr;</span>
+                      <span className="font-pixel text-[6px] text-green-700">GET:</span>
+                      <div className="flex gap-0.5">
+                        {Object.entries(counter.offering).flatMap(([r, amt]) =>
+                          Array.from({ length: amt! }, (_, i) => (
+                            <MiniCard key={`co-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="green" />
+                          ))
+                        )}
+                      </div>
+                      <button
+                        onClick={canAfford ? () => acceptCounterOffer(idx) : undefined}
+                        disabled={!canAfford}
+                        className={`px-1.5 py-0.5 font-pixel text-[6px] border border-black ${
+                          canAfford
+                            ? "bg-amber-500 text-black hover:bg-amber-400"
+                            : "bg-gray-500 text-gray-300 cursor-not-allowed"
+                        }`}
+                        title={canAfford ? "Accept counter-offer" : "You don't have the required resources"}
+                      >ACCEPT</button>
                     </div>
-                    <span className="text-[8px] text-gray-400">&rarr;</span>
-                    <span className="font-pixel text-[6px] text-green-700">GET:</span>
-                    <div className="flex gap-0.5">
-                      {Object.entries(counter.offering).flatMap(([r, amt]) =>
-                        Array.from({ length: amt! }, (_, i) => (
-                          <MiniCard key={`co-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="green" />
-                        ))
-                      )}
-                    </div>
-                    <button onClick={() => acceptCounterOffer(idx)} className="px-1.5 py-0.5 bg-amber-500 text-black font-pixel text-[6px] border border-black hover:bg-amber-400">ACCEPT</button>
-                  </div>
-                )}
+                  );
+                })()}
                 {isAcceptor && (
                   <div className="flex gap-1 items-center">
                     <button onClick={() => acceptTradeWith(idx)} className="p-0.5 hover:bg-green-100 rounded" title="Accept trade">

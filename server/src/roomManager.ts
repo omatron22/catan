@@ -279,6 +279,9 @@ function handleDisconnect(io: TypedServer, socket: TypedSocket) {
   slot.disconnectedAt = Date.now();
   socketToRoom.delete(socket.id);
 
+  // If no connected humans remain, end the session immediately
+  if (checkAllHumansGone(io, room)) return;
+
   const gracePeriod = room.gameState ? 5 * 60 * 1000 : 30 * 1000; // 5 min in-game, 30s in lobby
 
   setTimeout(() => {
@@ -315,10 +318,14 @@ function removePlayerBySlot(io: TypedServer, room: Room, slot: PlayerSlot) {
   // Re-index
   room.players.forEach((p, i) => (p.index = i));
 
-  if (room.players.length === 0) {
-    room.botTimers.forEach(clearTimeout);
-    if (room.turnTimer) clearTimeout(room.turnTimer);
-    rooms.delete(room.code);
+  if (room.players.length === 0 || checkAllHumansGone(io, room)) {
+    // checkAllHumansGone handles cleanup if only bots remain;
+    // if truly empty, clean up manually
+    if (rooms.has(room.code)) {
+      room.botTimers.forEach(clearTimeout);
+      if (room.turnTimer) clearTimeout(room.turnTimer);
+      rooms.delete(room.code);
+    }
     return;
   }
 
@@ -466,9 +473,10 @@ function handleLeaveGame(io: TypedServer, socket: TypedSocket) {
 }
 
 function checkAllHumansGone(io: TypedServer, room: Room): boolean {
-  const anyHuman = room.players.some((p) => !p.isBot);
-  if (!anyHuman) {
-    // End session
+  // A human is "present" if they're not a bot AND still connected (have a socketId)
+  const anyConnectedHuman = room.players.some((p) => !p.isBot && p.socketId !== null);
+  if (!anyConnectedHuman) {
+    // End session — clean up timers and delete room
     room.botTimers.forEach(clearTimeout);
     if (room.turnTimer) clearTimeout(room.turnTimer);
     io.to(room.code).emit("room:session-ended", { reason: "All players have left" });

@@ -26,9 +26,12 @@ function defaultPlayer(name: string, color: string, isBot: boolean): PlayerConfi
 export default function Home() {
   const router = useRouter();
   const [showLobby, setShowLobby] = useState(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("catan-auto-lobby")) {
-      sessionStorage.removeItem("catan-auto-lobby");
-      return true;
+    if (typeof window !== "undefined") {
+      if (sessionStorage.getItem("catan-auto-lobby")) {
+        sessionStorage.removeItem("catan-auto-lobby");
+        return true;
+      }
+      return sessionStorage.getItem("catan-show-lobby") === "true";
     }
     return false;
   });
@@ -58,6 +61,15 @@ export default function Home() {
   const [personalityPickerOpen, setPersonalityPickerOpen] = useState<number | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+
+  // Persist lobby visibility across refresh
+  useEffect(() => {
+    if (showLobby) {
+      sessionStorage.setItem("catan-show-lobby", "true");
+    } else {
+      sessionStorage.removeItem("catan-show-lobby");
+    }
+  }, [showLobby]);
 
   // Start music on first user interaction (persists across page navigations)
   useEffect(() => {

@@ -146,6 +146,10 @@ export default function GamePage() {
       case "buy-development-card": playDevCard(); break;
       case "play-knight": playRobber(); break;
       case "play-road-building": case "play-year-of-plenty": case "play-monopoly": playDevCard(); break;
+      // Silent actions — no sound needed
+      case "discard-resources": case "sheep-nuke-pick": case "accept-trade":
+      case "reject-trade": case "cancel-trade": case "select-monopoly-resource":
+      case "select-year-of-plenty-resources": break;
       default: playClick(); break;
     }
   }

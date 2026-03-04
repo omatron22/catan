@@ -162,7 +162,7 @@ export default function SettingsDropdown({ className = "", onChange }: SettingsD
   }
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div ref={containerRef} className={className}>
       {/* Gear button */}
       <button
         onClick={() => { setOpen(!open); }}

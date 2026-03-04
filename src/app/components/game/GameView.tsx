@@ -639,7 +639,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
         {/* Bottom bar — cobblestone wall + safe area extension */}
         <div
-          className="h-16 md:h-20 flex-shrink-0 flex items-center px-2 gap-1 md:gap-2 relative overflow-x-auto"
+          className="h-16 md:h-20 flex-shrink-0 flex items-center px-2 gap-1 md:gap-2 relative overflow-x-auto overflow-y-visible"
           style={{
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
             backgroundColor: "#6b5840",

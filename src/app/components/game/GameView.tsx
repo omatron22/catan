@@ -420,7 +420,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
           />
 
           {/* Turn/phase status overlay */}
-          <div className="absolute top-16 md:top-32 left-2 md:left-4 right-12 md:right-auto z-10 pointer-events-none" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 14px rgba(0,0,0,0.7))" }}>
+          <div className="absolute top-16 md:top-32 inset-x-0 md:inset-x-auto md:left-4 text-center md:text-left z-10 pointer-events-none" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 14px rgba(0,0,0,0.7))" }}>
             {needsDiscard ? (
               <div className="font-pixel text-[14px] md:text-[18px] text-red-400">SELECT CARDS TO DISCARD</div>
             ) : (

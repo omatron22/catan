@@ -19,13 +19,18 @@ export function RuleCard({ label, active, onClick, icon, disabled, tooltip }: { 
   return (
     <button
       onClick={disabled ? undefined : onClick}
-      title={tooltip}
-      className={`flex flex-col items-center gap-1.5 px-4 py-3 border-2 transition-all w-28 ${
+      className={`group relative flex flex-col items-center gap-1.5 px-4 py-3 border-2 transition-all w-28 ${
         active
           ? "border-amber-500 bg-amber-50 scale-105"
           : "border-gray-400 bg-[#e8d8b8] hover:border-gray-600 cursor-pointer"
       } ${disabled ? "opacity-70 cursor-default" : ""}`}
     >
+      {tooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 px-2.5 py-1.5 bg-[#1a1a2e] text-[#f0e6d0] font-pixel text-[6px] leading-relaxed text-center border-2 border-[#c4a96a] opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150">
+          {tooltip}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[5px] border-r-[5px] border-t-[5px] border-l-transparent border-r-transparent border-t-[#c4a96a]" />
+        </div>
+      )}
       <svg width="28" height="28" viewBox="0 0 28 28" shapeRendering="crispEdges">
         {icon === "robber" ? (
           <>

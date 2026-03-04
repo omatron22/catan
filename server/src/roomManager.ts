@@ -115,6 +115,25 @@ export function handleConnection(io: TypedServer, socket: TypedSocket) {
     handleLeaveGame(io, socket);
   });
 
+  socket.on("room:request-state", () => {
+    const room = getRoomForSocket(socket.id);
+    if (!room) return;
+    // Send current lobby state (or game state if in-game) to this socket
+    const lobbyData = {
+      players: toLobbyPlayers(room),
+      config: room.lobbyConfig,
+      hostIndex: getHostIndex(room),
+    };
+    socket.emit("room:lobby-state", lobbyData);
+    if (room.gameState) {
+      const slot = getPlayerSlot(room, socket.id);
+      if (slot) {
+        const clientState = filterStateForPlayer(room.gameState, slot.index);
+        socket.emit("game:state", { state: clientState });
+      }
+    }
+  });
+
   socket.on("game:action", ({ action }) => {
     handleGameAction(io, socket, action);
   });

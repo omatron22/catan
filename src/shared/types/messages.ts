@@ -22,6 +22,7 @@ export interface ClientMessages {
   "room:update-player": { color?: string; buildingStyle?: string; name?: string };
   "room:update-bot": { playerIndex: number; name?: string; color?: string; personality?: string };
   "room:leave-game": {};
+  "room:request-state": {};
   "chat:message": { text: string };
 }
 

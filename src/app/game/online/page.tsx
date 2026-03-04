@@ -122,6 +122,13 @@ export default function OnlineGamePage() {
     if (hasEverHadRoom.current) { router.push("/"); }
   }, [roomCode, router]);
 
+  // Request lobby/game state on mount (the broadcast from room creation may have
+  // been missed because this page's listeners weren't attached yet)
+  useEffect(() => {
+    if (!socket || !connected || !roomCode) return;
+    socket.emit("room:request-state", {});
+  }, [socket, connected, roomCode]);
+
   // Reconnect after socket disconnect/reconnect (not on initial navigation from home page)
   const didMount = useRef(false);
   useEffect(() => {

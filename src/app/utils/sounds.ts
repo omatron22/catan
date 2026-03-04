@@ -83,6 +83,15 @@ function getContext(): AudioContext {
   return audioCtx;
 }
 
+/**
+ * Ensure AudioContext is running and return a reliable "now" timestamp.
+ * After resume(), currentTime may still be stale for a frame, so we
+ * add a small offset to guarantee scheduled events are in the future.
+ */
+function safeNow(ctx: AudioContext): number {
+  return ctx.currentTime + 0.05;
+}
+
 /** Helper: play a square wave note (classic 8-bit sound) */
 function playSquareNote(freq: number, startTime: number, duration: number, volume = 0.08) {
   if (_masterVolume === 0 || _sfxMuted) return;
@@ -106,12 +115,10 @@ function playSquareNote(freq: number, startTime: number, duration: number, volum
 /** Dice rattle — fast descending noise burst (8-bit style) */
 export function playDiceRoll() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  // Rapid square wave clicks descending
+  const t = safeNow(ctx);
   for (let i = 0; i < 6; i++) {
     playSquareNote(800 - i * 80, t + i * 0.05, 0.06, 0.08);
   }
-  // Final two landing tones
   playSquareNote(440, t + 0.35, 0.12, 0.1);
   playSquareNote(660, t + 0.45, 0.15, 0.1);
 }
@@ -119,34 +126,34 @@ export function playDiceRoll() {
 /** Build — two rising 8-bit dings */
 export function playBuild() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  playSquareNote(523, t, 0.1, 0.1);        // C5
-  playSquareNote(784, t + 0.1, 0.15, 0.1); // G5
+  const t = safeNow(ctx);
+  playSquareNote(523, t, 0.1, 0.1);
+  playSquareNote(784, t + 0.1, 0.15, 0.1);
 }
 
 /** Trade — quick ascending arpeggio */
 export function playTrade() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  playSquareNote(392, t, 0.08, 0.07);       // G4
-  playSquareNote(523, t + 0.08, 0.08, 0.07); // C5
-  playSquareNote(659, t + 0.16, 0.12, 0.07); // E5
+  const t = safeNow(ctx);
+  playSquareNote(392, t, 0.08, 0.07);
+  playSquareNote(523, t + 0.08, 0.08, 0.07);
+  playSquareNote(659, t + 0.16, 0.12, 0.07);
 }
 
 /** Turn notification — gentle rising bell */
 export function playTurnNotification() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  playSquareNote(440, t, 0.12, 0.06);       // A4
-  playSquareNote(554, t + 0.12, 0.12, 0.06); // C#5
-  playSquareNote(659, t + 0.24, 0.2, 0.08); // E5
+  const t = safeNow(ctx);
+  playSquareNote(440, t, 0.12, 0.06);
+  playSquareNote(554, t + 0.12, 0.12, 0.06);
+  playSquareNote(659, t + 0.24, 0.2, 0.08);
 }
 
 /** Robber move — ominous low descending tone */
 export function playRobber() {
   if (_masterVolume === 0 || _sfxMuted) return;
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   const vol = 0.1 * (_masterVolume / 100);
   const osc = ctx.createOscillator();
   osc.type = "square";
@@ -156,16 +163,17 @@ export function playRobber() {
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(vol, t);
   gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  gain.gain.setValueAtTime(0, t + 0.351);
 
   osc.connect(gain).connect(ctx.destination);
   osc.start(t);
-  osc.stop(t + 0.35);
+  osc.stop(t + 0.4);
 }
 
 /** Steal — quick descending snatch */
 export function playSteal() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(880, t, 0.05, 0.08);
   playSquareNote(660, t + 0.05, 0.05, 0.08);
   playSquareNote(440, t + 0.1, 0.1, 0.08);
@@ -174,7 +182,7 @@ export function playSteal() {
 /** End turn — soft click */
 export function playEndTurn() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(330, t, 0.06, 0.05);
   playSquareNote(262, t + 0.06, 0.08, 0.04);
 }
@@ -182,7 +190,7 @@ export function playEndTurn() {
 /** Dev card buy — mysterious ascending */
 export function playDevCard() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(262, t, 0.08, 0.06);
   playSquareNote(330, t + 0.08, 0.08, 0.06);
   playSquareNote(392, t + 0.16, 0.08, 0.06);
@@ -192,7 +200,7 @@ export function playDevCard() {
 /** Error — low buzz */
 export function playError() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(110, t, 0.08, 0.1);
   playSquareNote(110, t + 0.12, 0.08, 0.1);
 }
@@ -200,14 +208,14 @@ export function playError() {
 /** Chat message — tiny blip */
 export function playChat() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(1047, t, 0.04, 0.04);
 }
 
 /** Setup placement — soft confirm */
 export function playSetup() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(440, t, 0.06, 0.06);
   playSquareNote(554, t + 0.06, 0.1, 0.06);
 }
@@ -215,17 +223,17 @@ export function playSetup() {
 /** Win fanfare — ascending triumphant */
 export function playWin() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  playSquareNote(523, t, 0.15, 0.1);       // C5
-  playSquareNote(659, t + 0.15, 0.15, 0.1); // E5
-  playSquareNote(784, t + 0.3, 0.15, 0.1);  // G5
-  playSquareNote(1047, t + 0.45, 0.3, 0.12); // C6
+  const t = safeNow(ctx);
+  playSquareNote(523, t, 0.15, 0.1);
+  playSquareNote(659, t + 0.15, 0.15, 0.1);
+  playSquareNote(784, t + 0.3, 0.15, 0.1);
+  playSquareNote(1047, t + 0.45, 0.3, 0.12);
 }
 
 /** Collect resources — gentle coin chime */
 export function playCollect() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(659, t, 0.1, 0.04);
   playSquareNote(784, t + 0.1, 0.15, 0.04);
 }
@@ -233,25 +241,25 @@ export function playCollect() {
 /** Button click — tiny tick */
 export function playClick() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(800, t, 0.025, 0.04);
 }
 
 /** Achievement unlocked — distinct rising fanfare */
 export function playAchievement() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  playSquareNote(392, t, 0.1, 0.08);        // G4
-  playSquareNote(523, t + 0.1, 0.1, 0.08);  // C5
-  playSquareNote(659, t + 0.2, 0.1, 0.08);  // E5
-  playSquareNote(784, t + 0.3, 0.1, 0.1);   // G5
-  playSquareNote(1047, t + 0.4, 0.3, 0.12); // C6
+  const t = safeNow(ctx);
+  playSquareNote(392, t, 0.1, 0.08);
+  playSquareNote(523, t + 0.1, 0.1, 0.08);
+  playSquareNote(659, t + 0.2, 0.1, 0.08);
+  playSquareNote(784, t + 0.3, 0.1, 0.1);
+  playSquareNote(1047, t + 0.4, 0.3, 0.12);
 }
 
 /** Menu open — short ascending whoosh */
 export function playMenuOpen() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(330, t, 0.06, 0.05);
   playSquareNote(440, t + 0.05, 0.06, 0.05);
   playSquareNote(554, t + 0.1, 0.08, 0.06);
@@ -260,7 +268,7 @@ export function playMenuOpen() {
 /** Menu close — short descending whoosh */
 export function playMenuClose() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(554, t, 0.06, 0.05);
   playSquareNote(440, t + 0.05, 0.06, 0.05);
   playSquareNote(330, t + 0.1, 0.08, 0.04);
@@ -269,22 +277,22 @@ export function playMenuClose() {
 /** Navigate / start — confident double ding */
 export function playNavigate() {
   const ctx = getContext();
-  const t = ctx.currentTime;
-  playSquareNote(659, t, 0.08, 0.08);       // E5
-  playSquareNote(880, t + 0.1, 0.15, 0.1);  // A5
+  const t = safeNow(ctx);
+  playSquareNote(659, t, 0.08, 0.08);
+  playSquareNote(880, t + 0.1, 0.15, 0.1);
 }
 
 /** Hover tick — very subtle blip for hover feedback */
 export function playHover() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(600, t, 0.015, 0.02);
 }
 
 /** Confirm action — firm click */
 export function playConfirm() {
   const ctx = getContext();
-  const t = ctx.currentTime;
+  const t = safeNow(ctx);
   playSquareNote(523, t, 0.05, 0.07);
   playSquareNote(784, t + 0.06, 0.1, 0.08);
 }

@@ -32,15 +32,38 @@ function MusicIcon({ muted, size = 16 }: { muted: boolean; size?: number }) {
   );
 }
 
+/** Pixel-art speaker icon */
+function SpeakerIcon({ volume, size = 16 }: { volume: number; size?: number }) {
+  const color = volume === 0 ? "#666" : "#fbbf24";
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" shapeRendering="crispEdges">
+      {/* Speaker body */}
+      <rect x="2" y="5" width="3" height="6" fill={color} />
+      {/* Speaker cone */}
+      <rect x="5" y="4" width="1" height="8" fill={color} />
+      <rect x="6" y="3" width="1" height="10" fill={color} />
+      <rect x="7" y="2" width="1" height="12" fill={color} />
+      {/* Sound waves */}
+      {volume > 0 && <rect x="9" y="5" width="1" height="6" fill={color} opacity={0.6} />}
+      {volume > 40 && <rect x="11" y="4" width="1" height="8" fill={color} opacity={0.4} />}
+      {volume > 70 && <rect x="13" y="3" width="1" height="10" fill={color} opacity={0.25} />}
+      {/* X for muted */}
+      {volume === 0 && (
+        <>
+          <rect x="10" y="4" width="2" height="2" fill="#ef4444" />
+          <rect x="12" y="6" width="2" height="2" fill="#ef4444" />
+          <rect x="10" y="8" width="2" height="2" fill="#ef4444" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 export default function AudioControls({ className = "" }: { className?: string }) {
   const [musicOff, setMusicOff] = useState(isMusicMuted);
   const [vol, setVol] = useState(getMasterVolume);
   const [showSlider, setShowSlider] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const toggleSlider = useCallback(() => {
-    setShowSlider((prev) => !prev);
-  }, []);
 
   const toggleMusic = useCallback(() => {
     const next = !musicOff;
@@ -48,6 +71,10 @@ export default function AudioControls({ className = "" }: { className?: string }
     setMusicMuted(next);
     if (!next) playClick();
   }, [musicOff]);
+
+  const toggleSlider = useCallback(() => {
+    setShowSlider((prev) => !prev);
+  }, []);
 
   const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const v = Number(e.target.value);
@@ -71,13 +98,30 @@ export default function AudioControls({ className = "" }: { className?: string }
 
   return (
     <div ref={containerRef} className={`flex items-center gap-1 ${className}`}>
+      {/* Music on/off toggle */}
       <button
-        onClick={toggleSlider}
-        onDoubleClick={toggleMusic}
-        className="w-8 h-8 flex items-center justify-center bg-black/40 hover:bg-black/60 border border-white/20 transition-colors cursor-pointer"
-        title={musicOff ? "Music: OFF (click for volume)" : "Music: ON (click for volume)"}
+        onClick={toggleMusic}
+        className={`w-8 h-8 flex items-center justify-center border transition-colors cursor-pointer ${
+          musicOff
+            ? "bg-black/40 border-white/20 hover:bg-black/60"
+            : "bg-black/40 border-amber-400/50 hover:bg-black/60"
+        }`}
+        title={musicOff ? "Music: OFF" : "Music: ON"}
       >
         <MusicIcon muted={musicOff} />
+      </button>
+
+      {/* Sound volume button + slider */}
+      <button
+        onClick={toggleSlider}
+        className={`w-8 h-8 flex items-center justify-center border transition-colors cursor-pointer ${
+          vol === 0
+            ? "bg-black/40 border-white/20 hover:bg-black/60"
+            : "bg-black/40 border-amber-400/50 hover:bg-black/60"
+        }`}
+        title={`Sound: ${vol}%`}
+      >
+        <SpeakerIcon volume={vol} />
       </button>
       {showSlider && (
         <input

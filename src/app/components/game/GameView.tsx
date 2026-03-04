@@ -401,9 +401,9 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   return (
     <div className="h-screen flex overflow-hidden bg-[#2a6ab5]">
       {/* Left column: board + trade strips + bottom bar */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      <div className="flex-1 flex flex-col min-w-0 relative" style={{ backgroundColor: "#6b5840" }}>
         {/* Board */}
-        <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 overflow-hidden relative">
+        <div className="flex-1 flex items-center justify-center min-h-0 min-w-0 overflow-hidden relative bg-[#2a6ab5]">
           <HexBoard
             board={gameState.board}
             size={50}

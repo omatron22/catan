@@ -372,12 +372,15 @@ export default function HexBoard({
             );
           })}
 
-          {/* Pending placement preview */}
+          {/* Pending placement preview — floating card like colonist.io */}
           {pendingPlacement && myPlayerIndex !== undefined && (() => {
             const FALLBACK_COLORS = ["red", "blue", "white", "orange", "green", "purple"] as const;
             const color = playerColors?.[myPlayerIndex] ?? PLAYER_COLOR_HEX[FALLBACK_COLORS[myPlayerIndex] ?? "red"];
             const style = buildingStyles?.[myPlayerIndex] ?? "classic";
             const def = STYLE_DEFS[style];
+            const cardW = size * 0.9;
+            const cardH = size * 0.9;
+            const cardR = size * 0.1; // corner radius
 
             if (pendingPlacement.type === "road") {
               const [v1, v2] = edgeEndpoints(pendingPlacement.key);
@@ -385,31 +388,38 @@ export default function HexBoard({
               const p2 = vertexToPixel(v2, size);
               const mx = (p1.x + p2.x) / 2;
               const my = (p1.y + p2.y) / 2;
-              const cr = size * 0.22;
+              // Card floats above the edge midpoint
+              const cardX = mx - cardW / 2;
+              const cardY = my - cardH - size * 0.15;
+              // Road icon drawn inside the card (vertical bar)
+              const iconH = cardH * 0.55;
+              const iconW = size * 0.12;
               return (
                 <g
                   className="cursor-pointer"
                   onClick={onEdgeClick ? () => { if (!dragMoved.current) onEdgeClick(pendingPlacement.key); } : undefined}
+                  style={{ animation: "checkmark-pop 0.25s ease-out forwards" }}
                 >
-                  {/* Outer glow */}
-                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                    stroke={color} strokeWidth={size * 0.3} strokeLinecap="round"
-                    opacity={0.25} style={{ animation: "confirm-glow 1.2s ease-in-out infinite" }} />
-                  {/* Road outline */}
-                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                    stroke="#2c1810" strokeWidth={size * 0.16} strokeLinecap="round" />
-                  {/* Road fill */}
-                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                    stroke={color} strokeWidth={size * 0.11} strokeLinecap="round" />
-                  {/* Checkmark badge */}
-                  <circle cx={mx} cy={my} r={cr} fill="#1a7a1a" stroke="#fff" strokeWidth={1.5}
-                    style={{ animation: "checkmark-pop 0.3s ease-out forwards" }} />
-                  <text x={mx} y={my + 1} textAnchor="middle" dominantBaseline="central"
-                    fill="#fff" fontSize={cr * 1.2} fontWeight="bold"
-                    style={{ animation: "checkmark-pop 0.3s ease-out forwards", pointerEvents: "none" }}>
-                    ✓
-                  </text>
+                  {/* Drop shadow */}
+                  <rect x={cardX + 2} y={cardY + 2} width={cardW} height={cardH} rx={cardR}
+                    fill="rgba(0,0,0,0.25)" />
+                  {/* Card background */}
+                  <rect x={cardX} y={cardY} width={cardW} height={cardH} rx={cardR}
+                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} />
+                  {/* Road icon — outline + fill */}
+                  <rect x={mx - iconW / 2 - 1.5} y={cardY + (cardH - iconH) / 2 - 1.5} width={iconW + 3} height={iconH + 3} rx={2}
+                    fill="#2c1810" />
+                  <rect x={mx - iconW / 2} y={cardY + (cardH - iconH) / 2} width={iconW} height={iconH} rx={1.5}
+                    fill={color} />
+                  {/* Pointer triangle from card to edge */}
+                  <polygon
+                    points={`${mx - 5},${cardY + cardH} ${mx + 5},${cardY + cardH} ${mx},${cardY + cardH + 6}`}
+                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} strokeLinejoin="round" />
+                  {/* Cover the triangle-card seam */}
+                  <rect x={mx - 5} y={cardY + cardH - 2} width={10} height={4} fill="#e8dcc8" />
                   {/* Hit target */}
+                  <rect x={cardX - 5} y={cardY - 5} width={cardW + 10} height={cardH + 20}
+                    fill="transparent" />
                   <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
                     stroke="transparent" strokeWidth={size * 0.4} strokeLinecap="round" />
                 </g>
@@ -418,34 +428,36 @@ export default function HexBoard({
               // Settlement or city preview
               const pos = vertexToPixel(pendingPlacement.key, size);
               const r = size * 0.15;
-              const path = def[pendingPlacement.type](pos, r);
-              const cr = r * 0.9;
-              // Checkmark badge position — offset above the building
-              const badgeY = pos.y - r * 2.2;
+              // Card floats above the vertex
+              const cardX = pos.x - cardW / 2;
+              const cardY = pos.y - cardH - size * 0.2;
+              // Build the icon centered inside the card
+              const iconCenter = { x: pos.x, y: cardY + cardH / 2 };
+              const iconR = r * 1.1;
+              const path = def[pendingPlacement.type](iconCenter, iconR);
               return (
                 <g
                   className="cursor-pointer"
                   onClick={onVertexClick ? () => { if (!dragMoved.current) onVertexClick(pendingPlacement.key); } : undefined}
+                  style={{ animation: "checkmark-pop 0.25s ease-out forwards" }}
                 >
-                  {/* Pulsing glow ring */}
-                  <circle cx={pos.x} cy={pos.y} r={r * 2.8}
-                    fill="none" stroke={color} strokeWidth={2}
-                    opacity={0.5} style={{ animation: "confirm-glow 1.2s ease-in-out infinite", transformOrigin: `${pos.x}px ${pos.y}px` }} />
-                  {/* Solid glow fill */}
-                  <circle cx={pos.x} cy={pos.y} r={r * 2.2}
-                    fill={color} opacity={0.15} />
-                  {/* Building shape — full color with gentle bounce */}
-                  <path d={path} fill={color} stroke="#000" strokeWidth={2}
-                    style={{ animation: "confirm-bounce 1.2s ease-in-out infinite", transformOrigin: `${pos.x}px ${pos.y}px` }} />
-                  {/* Checkmark badge */}
-                  <circle cx={pos.x} cy={badgeY} r={cr} fill="#1a7a1a" stroke="#fff" strokeWidth={1.5}
-                    style={{ animation: "checkmark-pop 0.3s ease-out forwards" }} />
-                  <text x={pos.x} y={badgeY + 1} textAnchor="middle" dominantBaseline="central"
-                    fill="#fff" fontSize={cr * 1.3} fontWeight="bold"
-                    style={{ animation: "checkmark-pop 0.3s ease-out forwards", pointerEvents: "none" }}>
-                    ✓
-                  </text>
+                  {/* Drop shadow */}
+                  <rect x={cardX + 2} y={cardY + 2} width={cardW} height={cardH} rx={cardR}
+                    fill="rgba(0,0,0,0.25)" />
+                  {/* Card background */}
+                  <rect x={cardX} y={cardY} width={cardW} height={cardH} rx={cardR}
+                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} />
+                  {/* Building icon */}
+                  <path d={path} fill={color} stroke="#2c1810" strokeWidth={1.5} />
+                  {/* Pointer triangle from card to vertex */}
+                  <polygon
+                    points={`${pos.x - 5},${cardY + cardH} ${pos.x + 5},${cardY + cardH} ${pos.x},${cardY + cardH + 6}`}
+                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} strokeLinejoin="round" />
+                  {/* Cover the triangle-card seam */}
+                  <rect x={pos.x - 5} y={cardY + cardH - 2} width={10} height={4} fill="#e8dcc8" />
                   {/* Hit target */}
+                  <rect x={cardX - 5} y={cardY - 5} width={cardW + 10} height={cardH + 20}
+                    fill="transparent" />
                   <circle cx={pos.x} cy={pos.y} r={r * 3} fill="transparent" />
                 </g>
               );

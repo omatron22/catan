@@ -106,20 +106,10 @@ body {
   animation: pulse-soft 1.5s ease-in-out infinite;
 }
 
-/* Pending placement confirmation glow */
-@keyframes confirm-glow {
-  0%, 100% { opacity: 0.15; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.15); }
-}
-
-@keyframes confirm-bounce {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.08); }
-}
-
+/* Placement confirmation card pop-in */
 @keyframes checkmark-pop {
-  0% { opacity: 0; transform: scale(0.3); }
-  50% { opacity: 1; transform: scale(1.15); }
+  0% { opacity: 0; transform: scale(0.5); }
+  70% { opacity: 1; transform: scale(1.05); }
   100% { opacity: 1; transform: scale(1); }
 }
 

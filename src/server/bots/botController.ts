@@ -2,7 +2,7 @@ import type { GameState, Resource } from "@/shared/types/game";
 import type { GameAction } from "@/shared/types/actions";
 import { pickSetupVertex, pickSetupRoad, pickBuildVertex, computeVertexProduction } from "./strategy/placement";
 import { pickBuildRoad } from "./strategy/roads";
-import { pickBankTrade, pickPlayerTrade, shouldRejectLeaderTrade } from "./strategy/trading";
+import { pickBankTrade, pickPlayerTrade } from "./strategy/trading";
 import { pickRobberHex, pickStealTarget, pickDiscardResources } from "./strategy/robber";
 import { pickDevCardToPlay } from "./strategy/devCards";
 import { computeStrategicContext, type BotStrategicContext } from "./strategy/context";
@@ -433,12 +433,12 @@ export function generateBotCounterOffer(
     const context = computeStrategicContext(state, botIndex);
     counterChance = context.weights.counterOfferChance;
 
-    // VP gate: don't counter-offer to players who are winning
-    if (shouldRejectLeaderTrade(state, trade.fromPlayer, context)) return null;
-    if (context.isEndgame) {
-      const fromThreat = context.playerThreats.find((t) => t.playerIndex === trade.fromPlayer);
-      if (fromThreat && fromThreat.visibleVP >= context.vpToWin - 2) return null;
-    }
+    // VP gate: don't counter-offer to threatening players
+    const fromVP = state.players[trade.fromPlayer].victoryPoints;
+    const botVP = context.ownVP;
+    if (fromVP >= context.vpToWin - 2) return null;
+    if (fromVP >= botVP + 2) return null;
+    if (fromVP > botVP && botVP < context.vpToWin - 2) return null;
 
     if (Math.random() > counterChance) return null;
 
@@ -553,18 +553,29 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
     // Fallback to basic evaluation
   }
 
-  // Reject trades that help the VP leader
+  // Reject trades that help threatening players
   if (context) {
-    if (shouldRejectLeaderTrade(state, trade.fromPlayer, context)) {
+    const fromVP = state.players[trade.fromPlayer].victoryPoints;
+    const botVP = context.ownVP;
+    const vpToWin = context.vpToWin;
+
+    // Never trade with someone close to winning (within 2 VP)
+    if (fromVP >= vpToWin - 2) {
+      tradeMemory.set(memKey, { tradeHash, turn: state.turnNumber, decision: "reject" });
       return "reject";
     }
 
-    // Endgame: refuse all trades with anyone within 2 VP of winning
-    if (context.isEndgame) {
-      const fromThreat = context.playerThreats.find((t) => t.playerIndex === trade.fromPlayer);
-      if (fromThreat && fromThreat.visibleVP >= context.vpToWin - 2) {
-        return "reject";
-      }
+    // Never trade with someone ahead of you by 2+ VP — you're helping the leader
+    if (fromVP >= botVP + 2) {
+      tradeMemory.set(memKey, { tradeHash, turn: state.turnNumber, decision: "reject" });
+      return "reject";
+    }
+
+    // If they're ahead by 1 VP, only trade if you're also close to winning
+    // (both racing for the finish — trading is worth the risk)
+    if (fromVP > botVP && botVP < vpToWin - 2) {
+      tradeMemory.set(memKey, { tradeHash, turn: state.turnNumber, decision: "reject" });
+      return "reject";
     }
   }
 

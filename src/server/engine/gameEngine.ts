@@ -835,13 +835,18 @@ function handleMoveRobber(state: GameState, playerIndex: number, hex: HexKey): A
   // Find players on this hex who can be stolen from
   const stealTargets = getStealTargets(newState, playerIndex, hex);
 
+  // After robber resolves, return to the phase before the robber was triggered
+  // (e.g. "roll" if knight was played before dice, "trade-or-build" otherwise)
+  const postRobberPhase = newState.preRobberTurnPhase ?? "trade-or-build";
   if (stealTargets.length === 0) {
-    newState.turnPhase = "trade-or-build";
+    newState.turnPhase = postRobberPhase;
+    newState.preRobberTurnPhase = undefined;
   } else if (stealTargets.length === 1) {
     // Auto-steal from the only target
     const target = stealTargets[0];
     stealRandomResource(newState, playerIndex, target);
-    newState.turnPhase = "trade-or-build";
+    newState.turnPhase = postRobberPhase;
+    newState.preRobberTurnPhase = undefined;
   } else {
     newState.turnPhase = "robber-steal";
   }
@@ -869,7 +874,8 @@ function handleStealResource(state: GameState, playerIndex: number, targetPlayer
 
   const newState = cloneState(state);
   stealRandomResource(newState, playerIndex, targetPlayer);
-  newState.turnPhase = "trade-or-build";
+  newState.turnPhase = newState.preRobberTurnPhase ?? "trade-or-build";
+  newState.preRobberTurnPhase = undefined;
 
   const events: GameEvent[] = [
     { type: "resource-stolen", playerIndex, data: { from: targetPlayer } },
@@ -948,6 +954,7 @@ function handlePlayKnight(state: GameState, playerIndex: number): ActionResult {
   newState.players[playerIndex].developmentCards.splice(cardIdx, 1);
   newState.players[playerIndex].knightsPlayed += 1;
   newState.players[playerIndex].hasPlayedDevCardThisTurn = true;
+  newState.preRobberTurnPhase = state.turnPhase; // remember phase to return to after robber
   newState.turnPhase = "robber-place";
 
   const events: GameEvent[] = [{ type: "knight-played", playerIndex }];

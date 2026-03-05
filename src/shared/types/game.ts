@@ -143,6 +143,7 @@ export interface GameState {
   config?: GameConfig;
   fairDiceBag?: number[];
   freeNukeAvailable?: boolean;
+  preRobberTurnPhase?: TurnPhase; // phase to return to after robber resolves (e.g. "roll" when knight played before dice)
 }
 
 export interface GameLogEntry {

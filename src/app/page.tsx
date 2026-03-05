@@ -237,6 +237,7 @@ export default function Home() {
     };
 
     sessionStorage.setItem("catan-game-config", JSON.stringify(config));
+    sessionStorage.removeItem("catan-game-state"); // Clear any old saved game
     router.push("/game/hotseat");
   }
 

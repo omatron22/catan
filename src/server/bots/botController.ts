@@ -568,56 +568,59 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
     }
   }
 
-  // Score gain vs loss using build goal for accurate need assessment
-  let gainScore = 0;
-  let lossScore = 0;
+  // Simple need-based evaluation:
+  // - Does the bot need what it's getting?
+  // - Can the bot spare what it's giving?
+  // Accept only if gaining needed resources and not losing needed ones.
 
-  if (context?.buildGoal) {
-    // Use build goal for precise need evaluation — strongly favor goal resources
-    for (const [res, amount] of Object.entries(trade.offering)) {
-      const goalNeed = context.buildGoal.missingResources[res as Resource] ?? 0;
-      gainScore += goalNeed > 0 ? (amount || 0) * 5 : (amount || 0) * 0.1;
+  function isNeeded(res: Resource): boolean {
+    if (context?.buildGoal) {
+      return (context.buildGoal.missingResources[res] ?? 0) > 0;
     }
-    for (const [res, amount] of Object.entries(trade.requesting)) {
-      const goalNeed = context.buildGoal.missingResources[res as Resource] ?? 0;
-      lossScore += goalNeed > 0 ? (amount || 0) * 5 : (amount || 0) * 0.1;
+    // Fallback: check if any affordable build needs this resource
+    for (const { cost } of [
+      { cost: BUILDING_COSTS.settlement },
+      { cost: BUILDING_COSTS.city },
+      { cost: BUILDING_COSTS.road },
+      { cost: BUILDING_COSTS.developmentCard },
+    ]) {
+      const required = cost[res as keyof typeof cost] || 0;
+      if (required > 0 && bot.resources[res] < required) return true;
     }
-  } else {
-    // Fallback to generic resource need scoring
-    const buildPriorities: Array<{ name: string; cost: Partial<Record<Resource, number>> }> = [
-      { name: "settlement", cost: BUILDING_COSTS.settlement },
-      { name: "city", cost: BUILDING_COSTS.city },
-      { name: "road", cost: BUILDING_COSTS.road },
-      { name: "developmentCard", cost: BUILDING_COSTS.developmentCard },
-    ];
+    return false;
+  }
 
-    function resourceNeed(res: Resource): number {
-      let need = 0;
-      for (const { cost } of buildPriorities) {
-        const required = cost[res] || 0;
-        if (required > 0) {
-          const deficit = required - bot.resources[res];
-          if (deficit > 0) need += deficit;
-        }
-      }
-      return need;
+  function isSurplus(res: Resource): boolean {
+    if (context?.buildGoal) {
+      const goalNeed = context.buildGoal.missingResources[res] ?? 0;
+      // Surplus if we have more than our goal needs
+      return bot.resources[res] > goalNeed;
     }
+    // Fallback: surplus if we have 2+ and don't need it for any build
+    return bot.resources[res] >= 2 && !isNeeded(res);
+  }
 
-    for (const [res, amount] of Object.entries(trade.offering)) {
-      gainScore += resourceNeed(res as Resource) * (amount || 0);
-    }
-    for (const [res, amount] of Object.entries(trade.requesting)) {
-      lossScore += resourceNeed(res as Resource) * (amount || 0);
+  // Check: are we getting at least one resource we need?
+  let gainingNeeded = false;
+  for (const [res, amount] of Object.entries(trade.offering)) {
+    if ((amount || 0) > 0 && isNeeded(res as Resource)) {
+      gainingNeeded = true;
+      break;
     }
   }
 
-  const threshold = context?.weights.tradeAcceptThreshold ?? 0;
-  const netBenefit = gainScore - lossScore;
+  // Check: are we giving away anything we need (not surplus)?
+  let losingNeeded = false;
+  for (const [res, amount] of Object.entries(trade.requesting)) {
+    if ((amount || 0) > 0 && !isSurplus(res as Resource)) {
+      losingNeeded = true;
+      break;
+    }
+  }
 
+  // Accept if gaining something needed and only giving surplus
   let decision: "accept" | "reject" = "reject";
-  if (netBenefit > threshold) {
-    decision = "accept";
-  } else if (netBenefit === threshold && Math.random() < 0.3) {
+  if (gainingNeeded && !losingNeeded) {
     decision = "accept";
   }
 

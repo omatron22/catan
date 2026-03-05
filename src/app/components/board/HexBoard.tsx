@@ -6,10 +6,16 @@ import type { VertexKey, EdgeKey, HexKey } from "@/shared/types/coordinates";
 import type { BuildingStyle } from "@/shared/types/config";
 import { hexToPixel, edgeEndpoints, vertexToPixel } from "@/shared/utils/hexMath";
 import { HEX_RING_COORDS, PLAYER_COLOR_HEX } from "@/shared/constants";
+import { STYLE_DEFS } from "@/shared/buildingStyles";
 import HexTile from "./HexTile";
 import Vertex from "./Vertex";
 import Edge from "./Edge";
 import Port from "./Port";
+
+export interface PendingPlacement {
+  type: "settlement" | "city" | "road";
+  key: string; // VertexKey or EdgeKey
+}
 
 interface Props {
   board: Board;
@@ -22,6 +28,8 @@ interface Props {
   nukeFlashHexes?: Set<HexKey>;
   playerColors?: Record<number, string>;
   buildingStyles?: Record<number, BuildingStyle>;
+  pendingPlacement?: PendingPlacement | null;
+  myPlayerIndex?: number;
   onVertexClick?: (vertex: VertexKey) => void;
   onEdgeClick?: (edge: EdgeKey) => void;
   onHexClick?: (hex: HexKey) => void;
@@ -43,6 +51,8 @@ export default function HexBoard({
   nukeFlashHexes,
   playerColors,
   buildingStyles,
+  pendingPlacement,
+  myPlayerIndex,
   onVertexClick,
   onEdgeClick,
   onHexClick,
@@ -331,6 +341,8 @@ export default function HexBoard({
           {/* Highlighted edges (potential placements) */}
           {Object.entries(board.edges).map(([key, road]) => {
             if (road || !highlightedEdges?.has(key)) return null;
+            const isPending = pendingPlacement && pendingPlacement.key === key && pendingPlacement.type === "road";
+            if (isPending) return null; // Rendered as preview instead
             return (
               <Edge
                 key={key}
@@ -344,18 +356,74 @@ export default function HexBoard({
           })}
 
           {/* Vertices/Buildings */}
-          {Object.entries(board.vertices).map(([key, building]) => (
-            <Vertex
-              key={key}
-              vertexKey={key}
-              building={building}
-              size={size}
-              highlighted={highlightedVertices?.has(key)}
-              playerColors={playerColors}
-              buildingStyles={buildingStyles}
-              onClick={onVertexClick ? () => { if (!dragMoved.current) onVertexClick(key); } : undefined}
-            />
-          ))}
+          {Object.entries(board.vertices).map(([key, building]) => {
+            const isPending = pendingPlacement && pendingPlacement.key === key && pendingPlacement.type !== "road";
+            return (
+              <Vertex
+                key={key}
+                vertexKey={key}
+                building={building}
+                size={size}
+                highlighted={highlightedVertices?.has(key) && !isPending}
+                playerColors={playerColors}
+                buildingStyles={buildingStyles}
+                onClick={onVertexClick ? () => { if (!dragMoved.current) onVertexClick(key); } : undefined}
+              />
+            );
+          })}
+
+          {/* Pending placement preview */}
+          {pendingPlacement && myPlayerIndex !== undefined && (() => {
+            const FALLBACK_COLORS = ["red", "blue", "white", "orange", "green", "purple"] as const;
+            const color = playerColors?.[myPlayerIndex] ?? PLAYER_COLOR_HEX[FALLBACK_COLORS[myPlayerIndex] ?? "red"];
+            const style = buildingStyles?.[myPlayerIndex] ?? "classic";
+            const def = STYLE_DEFS[style];
+
+            if (pendingPlacement.type === "road") {
+              const [v1, v2] = edgeEndpoints(pendingPlacement.key);
+              const p1 = vertexToPixel(v1, size);
+              const p2 = vertexToPixel(v2, size);
+              return (
+                <g
+                  className="cursor-pointer"
+                  onClick={onEdgeClick ? () => { if (!dragMoved.current) onEdgeClick(pendingPlacement.key); } : undefined}
+                >
+                  {/* Glow */}
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                    stroke={color} strokeWidth={size * 0.22} strokeLinecap="round" opacity={0.3}
+                    className="animate-pulse" />
+                  {/* Outline */}
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                    stroke="#2c1810" strokeWidth={size * 0.14} strokeLinecap="round" />
+                  {/* Fill */}
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                    stroke={color} strokeWidth={size * 0.1} strokeLinecap="round" opacity={0.75} />
+                  {/* Hit target */}
+                  <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                    stroke="transparent" strokeWidth={size * 0.35} strokeLinecap="round" />
+                </g>
+              );
+            } else {
+              // Settlement or city preview
+              const pos = vertexToPixel(pendingPlacement.key, size);
+              const r = size * 0.15;
+              const path = def[pendingPlacement.type](pos, r);
+              return (
+                <g
+                  className="cursor-pointer"
+                  onClick={onVertexClick ? () => { if (!dragMoved.current) onVertexClick(pendingPlacement.key); } : undefined}
+                >
+                  {/* Glow circle */}
+                  <circle cx={pos.x} cy={pos.y} r={r * 2.5}
+                    fill={color} opacity={0.2} className="animate-pulse" />
+                  {/* Building shape */}
+                  <path d={path} fill={color} stroke="#000" strokeWidth={2} opacity={0.75} />
+                  {/* Hit target */}
+                  <circle cx={pos.x} cy={pos.y} r={r * 2.5} fill="transparent" />
+                </g>
+              );
+            }
+          })()}
         </svg>
       </div>
 

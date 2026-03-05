@@ -35,17 +35,26 @@ export default function Vertex({
 
   if (!building && highlighted) {
     return (
-      <circle
-        cx={pos.x}
-        cy={pos.y}
-        r={r * 1.2}
-        fill="rgba(255,255,255,0.4)"
-        stroke="#000"
-        strokeWidth={2}
-        strokeDasharray="3 3"
-        className="cursor-pointer animate-pulse"
-        onClick={onClick}
-      />
+      <g className="cursor-pointer" onClick={onClick}>
+        {/* Invisible larger hit target */}
+        <circle
+          cx={pos.x}
+          cy={pos.y}
+          r={r * 2.5}
+          fill="transparent"
+        />
+        {/* Visible highlight */}
+        <circle
+          cx={pos.x}
+          cy={pos.y}
+          r={r * 1.2}
+          fill="rgba(255,255,255,0.4)"
+          stroke="#000"
+          strokeWidth={2}
+          strokeDasharray="3 3"
+          className="animate-pulse"
+        />
+      </g>
     );
   }
 

@@ -337,6 +337,13 @@ export default function Home() {
             PLAY
           </button>
         </div>
+
+        {/* Disclaimer */}
+        <div className="absolute bottom-3 inset-x-0 z-10 text-center px-4">
+          <p className="font-pixel text-[5px] md:text-[6px] text-white/40 leading-relaxed">
+            Erfindung is a fan-made project and is not affiliated with, endorsed by, or associated with Catan GmbH, Catan Studio, or Klaus Teuber&apos;s estate. &quot;Catan&quot; is a registered trademark of Catan GmbH.
+          </p>
+        </div>
       </main>
     );
   }

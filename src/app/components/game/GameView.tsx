@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useState, useRef, forwardRef, useImperativeHandle } from "react";
 import type { ReactNode } from "react";
 import HexBoard from "@/app/components/board/HexBoard";
+import type { PendingPlacement } from "@/app/components/board/HexBoard";
 import PlayerPanel from "@/app/components/ui/PlayerPanel";
 import DiceDisplay from "@/app/components/ui/DiceDisplay";
 import ActionBar from "@/app/components/ui/ActionBar";
@@ -129,6 +130,9 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   // --- Active action state ---
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
+  // --- Pending placement confirmation ---
+  const [pendingPlacement, setPendingPlacement] = useState<PendingPlacement | null>(null);
+
   // --- Nuke picker minimize state ---
   const [nukePickerMinimized, setNukePickerMinimized] = useState(false);
   useEffect(() => {
@@ -227,6 +231,21 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     }
   }, [gameState.phase, gameState.turnPhase, gameState.setupPlacementsMade, gameState.currentPlayerIndex, myPlayerIndex]);
 
+  // --- Clear pending placement when action/turn changes ---
+  useEffect(() => {
+    setPendingPlacement(null);
+  }, [activeAction, gameState.currentPlayerIndex]);
+
+  // --- Escape key cancels pending placement ---
+  useEffect(() => {
+    if (!pendingPlacement) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPendingPlacement(null);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [pendingPlacement]);
+
   // --- Reset trade mode on turn change ---
   useEffect(() => {
     trade.closeTrade();
@@ -239,33 +258,56 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
     }
   }, [needsDiscard]);
 
-  // --- Click handlers (Fix 2: auto-build support) ---
+  // --- Click handlers with confirmation (click once to preview, click again to place) ---
   const handleVertexClick = useCallback((vertex: VertexKey) => {
+    let placementType: PendingPlacement["type"] | null = null;
+
     if (activeAction === "setup-settlement" || activeAction === "build-settlement") {
-      const actionType = gameState.phase === "main" ? "build-settlement" : "place-settlement";
-      onAction({ type: actionType, playerIndex: myPlayerIndex, vertex } as GameAction);
+      placementType = "settlement";
     } else if (activeAction === "build-city") {
-      onAction({ type: "build-city", playerIndex: myPlayerIndex, vertex });
+      placementType = "city";
     } else if (activeAction === "auto-build") {
-      // Check if this vertex has player's own settlement → upgrade to city
       const building = gameState.board.vertices[vertex];
       if (building && building.playerIndex === myPlayerIndex && building.type === "settlement") {
-        onAction({ type: "build-city", playerIndex: myPlayerIndex, vertex });
+        placementType = "city";
       } else if (!building) {
-        onAction({ type: "build-settlement", playerIndex: myPlayerIndex, vertex });
+        placementType = "settlement";
       }
     }
-  }, [gameState.phase, gameState.board.vertices, activeAction, onAction, myPlayerIndex]);
+
+    if (!placementType) return;
+
+    // Second click on same spot → confirm
+    if (pendingPlacement && pendingPlacement.key === vertex && pendingPlacement.type === placementType) {
+      setPendingPlacement(null);
+      if (placementType === "settlement") {
+        const actionType = gameState.phase === "main" ? "build-settlement" : "place-settlement";
+        onAction({ type: actionType, playerIndex: myPlayerIndex, vertex } as GameAction);
+      } else {
+        onAction({ type: "build-city", playerIndex: myPlayerIndex, vertex });
+      }
+    } else {
+      // First click → show preview
+      setPendingPlacement({ type: placementType, key: vertex });
+    }
+  }, [gameState.phase, gameState.board.vertices, activeAction, onAction, myPlayerIndex, pendingPlacement]);
 
   const handleEdgeClick = useCallback((edge: EdgeKey) => {
-    if (activeAction === "setup-road" || activeAction === "build-road") {
+    const isSetup = activeAction === "setup-road" || activeAction === "build-road";
+    const isAuto = activeAction === "auto-build";
+    if (!isSetup && !isAuto) return;
+
+    // Second click on same spot → confirm
+    if (pendingPlacement && pendingPlacement.key === edge && pendingPlacement.type === "road") {
+      setPendingPlacement(null);
       const actionType = (gameState.phase === "setup-forward" || gameState.phase === "setup-reverse")
         ? "place-road" : "build-road";
       onAction({ type: actionType, playerIndex: myPlayerIndex, edge } as GameAction);
-    } else if (activeAction === "auto-build") {
-      onAction({ type: "build-road", playerIndex: myPlayerIndex, edge } as GameAction);
+    } else {
+      // First click → show preview
+      setPendingPlacement({ type: "road", key: edge });
     }
-  }, [gameState.phase, activeAction, onAction, myPlayerIndex]);
+  }, [gameState.phase, activeAction, onAction, myPlayerIndex, pendingPlacement]);
 
   const handleHexClick = useCallback((hex: HexKey) => {
     if (activeAction === "move-robber") {
@@ -434,6 +476,8 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
             nukeFlashHexes={nukeFlashHexes}
             playerColors={playerColors}
             buildingStyles={buildingStyles}
+            pendingPlacement={pendingPlacement}
+            myPlayerIndex={myPlayerIndex}
             onVertexClick={isMyTurn ? handleVertexClick : undefined}
             onEdgeClick={isMyTurn ? handleEdgeClick : undefined}
             onHexClick={isMyTurn ? handleHexClick : undefined}

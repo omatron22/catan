@@ -28,18 +28,29 @@ export default function Edge({ edgeKey: ek, road, size, onClick, highlighted, la
     // Only render highlights in fill pass (or when no layer specified)
     if (layer === "outline") return null;
     return (
-      <line
-        x1={p1.x}
-        y1={p1.y}
-        x2={p2.x}
-        y2={p2.y}
-        stroke="rgba(255,255,255,0.5)"
-        strokeWidth={size * 0.1}
-        strokeDasharray="5 5"
-        strokeLinecap="round"
-        className="cursor-pointer"
-        onClick={onClick}
-      />
+      <g className="cursor-pointer" onClick={onClick}>
+        {/* Invisible wide hit target */}
+        <line
+          x1={p1.x}
+          y1={p1.y}
+          x2={p2.x}
+          y2={p2.y}
+          stroke="transparent"
+          strokeWidth={size * 0.35}
+          strokeLinecap="round"
+        />
+        {/* Visible dashed line */}
+        <line
+          x1={p1.x}
+          y1={p1.y}
+          x2={p2.x}
+          y2={p2.y}
+          stroke="rgba(255,255,255,0.5)"
+          strokeWidth={size * 0.1}
+          strokeDasharray="5 5"
+          strokeLinecap="round"
+        />
+      </g>
     );
   }
 

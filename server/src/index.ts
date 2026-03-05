@@ -30,6 +30,6 @@ io.on("connection", (socket: TypedSocket) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`Catan server listening on port ${PORT}`);
+  console.log(`Erfindung server listening on port ${PORT}`);
   console.log(`CORS origins: ${CORS_ORIGINS.join(", ")}`);
 });

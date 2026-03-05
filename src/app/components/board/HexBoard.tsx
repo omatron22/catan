@@ -380,7 +380,9 @@ export default function HexBoard({
             const def = STYLE_DEFS[style];
             const cardW = size * 0.9;
             const cardH = size * 0.9;
-            const cardR = size * 0.1; // corner radius
+
+            // Pixel-style sharp shadow offset
+            const sh = 3;
 
             if (pendingPlacement.type === "road") {
               const [v1, v2] = edgeEndpoints(pendingPlacement.key);
@@ -388,10 +390,8 @@ export default function HexBoard({
               const p2 = vertexToPixel(v2, size);
               const mx = (p1.x + p2.x) / 2;
               const my = (p1.y + p2.y) / 2;
-              // Card floats above the edge midpoint
               const cardX = mx - cardW / 2;
               const cardY = my - cardH - size * 0.15;
-              // Road icon drawn inside the card (vertical bar)
               const iconH = cardH * 0.55;
               const iconW = size * 0.12;
               return (
@@ -400,23 +400,23 @@ export default function HexBoard({
                   onClick={onEdgeClick ? () => { if (!dragMoved.current) onEdgeClick(pendingPlacement.key); } : undefined}
                   style={{ animation: "checkmark-pop 0.25s ease-out forwards" }}
                 >
-                  {/* Drop shadow */}
-                  <rect x={cardX + 2} y={cardY + 2} width={cardW} height={cardH} rx={cardR}
-                    fill="rgba(0,0,0,0.25)" />
-                  {/* Card background */}
-                  <rect x={cardX} y={cardY} width={cardW} height={cardH} rx={cardR}
-                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} />
+                  {/* Pixel drop shadow — hard offset, no blur */}
+                  <rect x={cardX + sh} y={cardY + sh} width={cardW} height={cardH}
+                    fill="#000" />
+                  {/* Card background — sharp corners, thick black border */}
+                  <rect x={cardX} y={cardY} width={cardW} height={cardH}
+                    fill="#f0e6d0" stroke="#000" strokeWidth={2} />
                   {/* Road icon — outline + fill */}
-                  <rect x={mx - iconW / 2 - 1.5} y={cardY + (cardH - iconH) / 2 - 1.5} width={iconW + 3} height={iconH + 3} rx={2}
-                    fill="#2c1810" />
-                  <rect x={mx - iconW / 2} y={cardY + (cardH - iconH) / 2} width={iconW} height={iconH} rx={1.5}
+                  <rect x={mx - iconW / 2 - 1.5} y={cardY + (cardH - iconH) / 2 - 1.5} width={iconW + 3} height={iconH + 3}
+                    fill="#000" />
+                  <rect x={mx - iconW / 2} y={cardY + (cardH - iconH) / 2} width={iconW} height={iconH}
                     fill={color} />
-                  {/* Pointer triangle from card to edge */}
+                  {/* Pointer triangle */}
                   <polygon
-                    points={`${mx - 5},${cardY + cardH} ${mx + 5},${cardY + cardH} ${mx},${cardY + cardH + 6}`}
-                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} strokeLinejoin="round" />
-                  {/* Cover the triangle-card seam */}
-                  <rect x={mx - 5} y={cardY + cardH - 2} width={10} height={4} fill="#e8dcc8" />
+                    points={`${mx - 6},${cardY + cardH - 1} ${mx + 6},${cardY + cardH - 1} ${mx},${cardY + cardH + 7}`}
+                    fill="#f0e6d0" stroke="#000" strokeWidth={2} strokeLinejoin="miter" />
+                  {/* Cover triangle-card seam */}
+                  <rect x={mx - 5} y={cardY + cardH - 2} width={10} height={3} fill="#f0e6d0" />
                   {/* Hit target */}
                   <rect x={cardX - 5} y={cardY - 5} width={cardW + 10} height={cardH + 20}
                     fill="transparent" />
@@ -425,13 +425,10 @@ export default function HexBoard({
                 </g>
               );
             } else {
-              // Settlement or city preview
               const pos = vertexToPixel(pendingPlacement.key, size);
               const r = size * 0.15;
-              // Card floats above the vertex
               const cardX = pos.x - cardW / 2;
               const cardY = pos.y - cardH - size * 0.2;
-              // Build the icon centered inside the card
               const iconCenter = { x: pos.x, y: cardY + cardH / 2 };
               const iconR = r * 1.1;
               const path = def[pendingPlacement.type](iconCenter, iconR);
@@ -441,20 +438,20 @@ export default function HexBoard({
                   onClick={onVertexClick ? () => { if (!dragMoved.current) onVertexClick(pendingPlacement.key); } : undefined}
                   style={{ animation: "checkmark-pop 0.25s ease-out forwards" }}
                 >
-                  {/* Drop shadow */}
-                  <rect x={cardX + 2} y={cardY + 2} width={cardW} height={cardH} rx={cardR}
-                    fill="rgba(0,0,0,0.25)" />
+                  {/* Pixel drop shadow */}
+                  <rect x={cardX + sh} y={cardY + sh} width={cardW} height={cardH}
+                    fill="#000" />
                   {/* Card background */}
-                  <rect x={cardX} y={cardY} width={cardW} height={cardH} rx={cardR}
-                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} />
+                  <rect x={cardX} y={cardY} width={cardW} height={cardH}
+                    fill="#f0e6d0" stroke="#000" strokeWidth={2} />
                   {/* Building icon */}
-                  <path d={path} fill={color} stroke="#2c1810" strokeWidth={1.5} />
-                  {/* Pointer triangle from card to vertex */}
+                  <path d={path} fill={color} stroke="#000" strokeWidth={1.5} />
+                  {/* Pointer triangle */}
                   <polygon
-                    points={`${pos.x - 5},${cardY + cardH} ${pos.x + 5},${cardY + cardH} ${pos.x},${cardY + cardH + 6}`}
-                    fill="#e8dcc8" stroke="#8b7355" strokeWidth={2} strokeLinejoin="round" />
-                  {/* Cover the triangle-card seam */}
-                  <rect x={pos.x - 5} y={cardY + cardH - 2} width={10} height={4} fill="#e8dcc8" />
+                    points={`${pos.x - 6},${cardY + cardH - 1} ${pos.x + 6},${cardY + cardH - 1} ${pos.x},${cardY + cardH + 7}`}
+                    fill="#f0e6d0" stroke="#000" strokeWidth={2} strokeLinejoin="miter" />
+                  {/* Cover triangle-card seam */}
+                  <rect x={pos.x - 5} y={cardY + cardH - 2} width={10} height={3} fill="#f0e6d0" />
                   {/* Hit target */}
                   <rect x={cardX - 5} y={cardY - 5} width={cardW + 10} height={cardH + 20}
                     fill="transparent" />

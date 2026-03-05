@@ -125,6 +125,12 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
   // --- Active action state ---
   const [activeAction, setActiveAction] = useState<string | null>(null);
 
+  // --- Nuke picker minimize state ---
+  const [nukePickerMinimized, setNukePickerMinimized] = useState(false);
+  useEffect(() => {
+    if (gameState.turnPhase === "sheep-nuke-pick") setNukePickerMinimized(false);
+  }, [gameState.turnPhase]);
+
   // --- Discard selection state (Fix 3: inline discard) ---
   const [discardSelection, setDiscardSelection] = useState<Record<Resource, number>>({
     brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0,
@@ -885,38 +891,61 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
         />
       )}
 
-      {/* Sheep Nuke number picker */}
+      {/* Sheep Nuke number picker — non-blocking bottom panel */}
       {gameState.turnPhase === "sheep-nuke-pick" && isMyTurn && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" />
-          <div
-            className="relative border-4 border-[#5a3e28] p-5"
+        nukePickerMinimized ? (
+          <button
+            onClick={() => setNukePickerMinimized(false)}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 border-3 border-[#5a3e28] font-pixel text-[10px] text-red-700 animate-pulse"
             style={{
               backgroundColor: "#f0e6d0",
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='6' height='6' fill='%23f0e6d0'/%3E%3Crect x='0' y='0' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3C/svg%3E")`,
-              backgroundSize: "6px 6px",
-              boxShadow: "6px 6px 0 #000, inset 0 0 20px rgba(139,115,85,0.3)",
+              boxShadow: "4px 4px 0 #000",
             }}
-            onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-center mb-3">
-              <div className="font-pixel text-[12px] text-red-700">SHEEP NUKE</div>
-              <div className="font-pixel text-[8px] text-gray-600 mt-1">You rolled a 7 — pick a number to destroy!</div>
-              <div className="mt-1 h-[2px] bg-[#8b7355] mx-4" />
-            </div>
-            <div className="grid grid-cols-5 gap-2 max-w-xs mx-auto">
-              {[2, 3, 4, 5, 6, 8, 9, 10, 11, 12].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => onAction({ type: "sheep-nuke-pick", playerIndex: myPlayerIndex, number: n })}
-                  className="w-12 h-12 flex items-center justify-center border-2 border-black font-pixel text-[14px] text-gray-900 pixel-btn bg-amber-400 hover:bg-red-500 hover:text-white transition-colors"
-                >
-                  {n}
-                </button>
-              ))}
+            PICK NUMBER TO DESTROY
+          </button>
+        ) : (
+          <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col items-center pointer-events-none">
+            {/* Tap-to-minimize backdrop — lets user see board */}
+            <div
+              className="absolute inset-0 bg-black/30 pointer-events-auto"
+              onClick={() => setNukePickerMinimized(true)}
+            />
+            <div
+              className="relative pointer-events-auto w-full max-w-sm mx-auto mb-0 border-t-4 border-x-4 border-[#5a3e28] rounded-t-lg p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+              style={{
+                backgroundColor: "#f0e6d0",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg width='6' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='6' height='6' fill='%23f0e6d0'/%3E%3Crect x='0' y='0' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3Crect x='3' y='3' width='3' height='3' fill='%23e8ddc4' opacity='0.4'/%3E%3C/svg%3E")`,
+                backgroundSize: "6px 6px",
+                boxShadow: "0 -4px 20px rgba(0,0,0,0.3)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Drag handle / minimize hint */}
+              <div
+                className="flex justify-center mb-2 cursor-pointer"
+                onClick={() => setNukePickerMinimized(true)}
+              >
+                <div className="w-10 h-1 bg-[#8b7355] rounded-full" />
+              </div>
+              <div className="text-center mb-2">
+                <div className="font-pixel text-[10px] text-red-700">SHEEP NUKE — PICK A NUMBER</div>
+                <div className="font-pixel text-[6px] text-gray-500 mt-0.5">Tap backdrop to see board</div>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5 max-w-xs mx-auto">
+                {[2, 3, 4, 5, 6, 8, 9, 10, 11, 12].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onAction({ type: "sheep-nuke-pick", playerIndex: myPlayerIndex, number: n })}
+                    className="w-11 h-11 flex items-center justify-center border-2 border-black font-pixel text-[13px] text-gray-900 pixel-btn bg-amber-400 hover:bg-red-500 hover:text-white transition-colors"
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
       {/* Game menu overlay */}

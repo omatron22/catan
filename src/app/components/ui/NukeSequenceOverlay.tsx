@@ -123,19 +123,14 @@ export default function NukeSequenceOverlay({
       {phase === "countdown" && (
         <div className="flex flex-col items-center gap-6 animate-pulse">
           <div
-            className="font-pixel text-[20px] md:text-[28px] text-center tracking-wider"
+            className="font-pixel text-[16px] md:text-[22px] text-center tracking-wider"
             style={{
               color: isFreeNuke ? "#facc15" : "#ef4444",
               textShadow: `0 0 20px ${isFreeNuke ? "rgba(250,204,21,0.6)" : "rgba(239,68,68,0.6)"}`,
             }}
           >
-            {isFreeNuke ? "FREE NUKE — DOUBLES!" : "SHEEP NUKE INCOMING"}
-          </div>
-          <div
-            className="font-pixel text-[10px]"
-            style={{ color: playerColor }}
-          >
-            {playerName.toUpperCase()}
+            <span style={{ color: playerColor }}>{playerName}</span>
+            {isFreeNuke ? " GOT A FREE NUKE!" : " LAUNCHED A SHEEP NUKE"}
           </div>
           {countdown > 0 && (
             <div

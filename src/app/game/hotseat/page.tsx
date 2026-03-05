@@ -677,8 +677,17 @@ export default function GamePage() {
 
   function acceptTradeWith(botIndex: number) {
     if (!pendingTradeUI) return;
+    tradeTimersRef.current.forEach(clearTimeout);
+    tradeTimersRef.current = [];
     const result = applyAction(pendingTradeUI.tradeState, { type: "accept-trade", playerIndex: botIndex, tradeId: pendingTradeUI.tradeId });
-    if (result.valid && result.newState) { playTrade(); setGameState(result.newState); }
+    if (result.valid && result.newState) {
+      playTrade();
+      setGameState(result.newState);
+    } else {
+      // Accept failed — cancel the pending trade so state isn't stuck
+      const cancel = applyAction(pendingTradeUI.tradeState, { type: "cancel-trade", playerIndex: HUMAN_PLAYER_INDEX, tradeId: pendingTradeUI.tradeId });
+      if (cancel.valid && cancel.newState) setGameState(cancel.newState);
+    }
     setPendingTradeUI(null);
     gameViewRef.current?.closeTrade();
   }
@@ -701,6 +710,8 @@ export default function GamePage() {
     if (!pendingTradeUI || !gameState) return;
     const counter = pendingTradeUI.counterOffers[botIndex];
     if (!counter) return;
+    tradeTimersRef.current.forEach(clearTimeout);
+    tradeTimersRef.current = [];
 
     const cancelResult = applyAction(pendingTradeUI.tradeState, { type: "cancel-trade", playerIndex: HUMAN_PLAYER_INDEX, tradeId: pendingTradeUI.tradeId });
     if (!cancelResult.valid || !cancelResult.newState) { setPendingTradeUI(null); gameViewRef.current?.closeTrade(); return; }
@@ -716,6 +727,8 @@ export default function GamePage() {
 
   function declineAllTrades() {
     if (!pendingTradeUI) return;
+    tradeTimersRef.current.forEach(clearTimeout);
+    tradeTimersRef.current = [];
     cancelPendingTrade(pendingTradeUI.tradeState, pendingTradeUI.tradeId);
   }
 

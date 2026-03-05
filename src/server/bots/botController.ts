@@ -465,43 +465,32 @@ export function generateBotCounterOffer(
       }
     }
 
-    // Fallback to random 1-for-1
-    const requestedKeys = Object.entries(trade.offering)
-      .filter(([, amt]) => (amt || 0) > 0)
-      .map(([r]) => r as Resource);
-    const offeredKeys = Object.entries(trade.requesting)
-      .filter(([, amt]) => (amt || 0) > 0)
-      .map(([r]) => r as Resource);
+    // Fallback: bot offers a resource it has surplus of, requests one it lacks
+    // "surplus" = resources the bot has > 1, "scarce" = resources the bot has 0 of
+    const surplus = ALL_RESOURCES.filter((r) => bot.resources[r] > 1);
+    const scarce = ALL_RESOURCES.filter((r) => bot.resources[r] === 0);
 
-    if (requestedKeys.length === 0 || offeredKeys.length === 0) return null;
+    if (surplus.length === 0 || scarce.length === 0) return null;
 
-    const canGive = offeredKeys.filter((r) => bot.resources[r] > 0);
-    if (canGive.length === 0) return null;
-
-    const giveRes = canGive[Math.floor(Math.random() * canGive.length)];
-    const wantRes = requestedKeys[Math.floor(Math.random() * requestedKeys.length)];
+    const giveRes = surplus[Math.floor(Math.random() * surplus.length)];
+    const wantRes = scarce[Math.floor(Math.random() * scarce.length)];
+    if (giveRes === wantRes) return null;
     const counter = { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
     if (isIdenticalToOriginal(counter)) return null;
     return counter;
   } catch {
-    // Fallback: basic counter
+    // Fallback: basic counter — bot offers surplus, requests scarce
     if (Math.random() > counterChance) return null;
 
     const bot = state.players[botIndex];
-    const requestedKeys = Object.entries(trade.offering)
-      .filter(([, amt]) => (amt || 0) > 0)
-      .map(([r]) => r as Resource);
-    const offeredKeys = Object.entries(trade.requesting)
-      .filter(([, amt]) => (amt || 0) > 0)
-      .map(([r]) => r as Resource);
+    const surplus = ALL_RESOURCES.filter((r) => bot.resources[r] > 1);
+    const scarce = ALL_RESOURCES.filter((r) => bot.resources[r] === 0);
 
-    if (requestedKeys.length === 0 || offeredKeys.length === 0) return null;
+    if (surplus.length === 0 || scarce.length === 0) return null;
 
-    const canGive = offeredKeys.filter((r) => bot.resources[r] > 0);
-    if (canGive.length === 0) return null;
-
-    const giveRes = canGive[Math.floor(Math.random() * canGive.length)];
-    const wantRes = requestedKeys[Math.floor(Math.random() * requestedKeys.length)];
+    const giveRes = surplus[Math.floor(Math.random() * surplus.length)];
+    const wantRes = scarce[Math.floor(Math.random() * scarce.length)];
+    if (giveRes === wantRes) return null;
     const counter = { offering: { [giveRes]: 1 }, requesting: { [wantRes]: 1 } };
     if (isIdenticalToOriginal(counter)) return null;
     return counter;

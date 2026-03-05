@@ -234,7 +234,9 @@ export default function HexBoard({
               adj[pi][v2].push(v1);
             }
 
-            const elements: React.ReactNode[] = [];
+            // Collect all chains per player so we can control render order
+            type Chain = { pi: number; chain: string[]; color: string };
+            const allChains: Chain[] = [];
 
             for (const [piStr, graph] of Object.entries(adj)) {
               const pi = Number(piStr);
@@ -242,7 +244,6 @@ export default function HexBoard({
               const visitedEdges = new Set<string>();
               const eid = (a: string, b: string) => a < b ? `${a}|${b}` : `${b}|${a}`;
 
-              // Start from endpoints (degree 1) and branch points (degree 3+) first
               const verts = Object.keys(graph);
               const starts = [
                 ...verts.filter((v) => graph[v].length === 1 || graph[v].length >= 3),
@@ -254,7 +255,6 @@ export default function HexBoard({
                   const e = eid(start, neighbor);
                   if (visitedEdges.has(e)) continue;
 
-                  // Trace a chain
                   const chain = [start];
                   let cur = start;
                   let next = neighbor;
@@ -263,7 +263,6 @@ export default function HexBoard({
                     if (visitedEdges.has(e2)) break;
                     visitedEdges.add(e2);
                     chain.push(next);
-                    // Continue if degree-2 (straight through)
                     const unvisited = graph[next].filter((n) => !visitedEdges.has(eid(next, n)));
                     if (unvisited.length === 1) {
                       cur = next;
@@ -273,65 +272,85 @@ export default function HexBoard({
                     }
                   }
 
-                  const pts = chain.map((v) => vertexToPixel(v, size));
-                  const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(" ");
-                  const key = `road-${pi}-${chain[0]}-${chain[chain.length - 1]}`;
-
-                  // Outline
-                  elements.push(
-                    <polyline
-                      key={`${key}-outline`}
-                      points={pointsStr}
-                      fill="none"
-                      stroke="#2c1810"
-                      strokeWidth={size * 0.14}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  );
+                  allChains.push({ pi, chain, color });
                 }
               }
+            }
 
-              // Second pass: fills on top
-              visitedEdges.clear();
-              for (const start of starts) {
-                for (const neighbor of graph[start]) {
-                  const e = eid(start, neighbor);
-                  if (visitedEdges.has(e)) continue;
-
-                  const chain = [start];
-                  let cur = start;
-                  let next = neighbor;
-                  while (true) {
-                    const e2 = eid(cur, next);
-                    if (visitedEdges.has(e2)) break;
-                    visitedEdges.add(e2);
-                    chain.push(next);
-                    const unvisited = graph[next].filter((n) => !visitedEdges.has(eid(next, n)));
-                    if (unvisited.length === 1) {
-                      cur = next;
-                      next = unvisited[0];
-                    } else {
-                      break;
-                    }
-                  }
-
-                  const pts = chain.map((v) => vertexToPixel(v, size));
-                  const pointsStr = pts.map((p) => `${p.x},${p.y}`).join(" ");
-                  const key = `road-${pi}-${chain[0]}-${chain[chain.length - 1]}`;
-
-                  elements.push(
-                    <polyline
-                      key={`${key}-fill`}
-                      points={pointsStr}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={size * 0.1}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  );
+            // Shorten a chain's endpoints so roads don't overlap at shared vertices.
+            // Only shorten an endpoint if the vertex has NO building from this player
+            // (buildings cover the gap, so we keep full length under own buildings).
+            const SHORTEN = 0.18; // fraction to pull back from vertex center
+            function shortenedPoints(chain: string[], pi: number) {
+              const pts = chain.map((v) => vertexToPixel(v, size));
+              if (pts.length >= 2) {
+                const first = chain[0];
+                const bFirst = board.vertices[first];
+                if (!bFirst || bFirst.playerIndex !== pi) {
+                  const dx = pts[1].x - pts[0].x;
+                  const dy = pts[1].y - pts[0].y;
+                  pts[0] = { x: pts[0].x + dx * SHORTEN, y: pts[0].y + dy * SHORTEN };
                 }
+                const last = chain[chain.length - 1];
+                const bLast = board.vertices[last];
+                if (!bLast || bLast.playerIndex !== pi) {
+                  const n = pts.length - 1;
+                  const dx = pts[n - 1].x - pts[n].x;
+                  const dy = pts[n - 1].y - pts[n].y;
+                  pts[n] = { x: pts[n].x + dx * SHORTEN, y: pts[n].y + dy * SHORTEN };
+                }
+              }
+              return pts.map((p) => `${p.x},${p.y}`).join(" ");
+            }
+
+            // Sort: players who own a building at contested vertices render last (on top).
+            // Simple heuristic: count buildings — more buildings = render later.
+            const buildingCount: Record<number, number> = {};
+            for (const b of Object.values(board.vertices)) {
+              if (b) buildingCount[b.playerIndex] = (buildingCount[b.playerIndex] ?? 0) + 1;
+            }
+            const playerOrder = [...new Set(allChains.map((c) => c.pi))].sort(
+              (a, b) => (buildingCount[a] ?? 0) - (buildingCount[b] ?? 0)
+            );
+
+            const elements: React.ReactNode[] = [];
+
+            // Render outlines first (all players), then fills, in player order
+            for (const pi of playerOrder) {
+              const chains = allChains.filter((c) => c.pi === pi);
+              for (const { chain } of chains) {
+                const pointsStr = shortenedPoints(chain, pi);
+                const key = `road-${pi}-${chain[0]}-${chain[chain.length - 1]}`;
+                elements.push(
+                  <polyline
+                    key={`${key}-outline`}
+                    points={pointsStr}
+                    fill="none"
+                    stroke="#2c1810"
+                    strokeWidth={size * 0.14}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                );
+              }
+            }
+
+            for (const pi of playerOrder) {
+              const chains = allChains.filter((c) => c.pi === pi);
+              for (const { chain, color } of chains) {
+                const pointsStr = shortenedPoints(chain, pi);
+                const key = `road-${pi}-${chain[0]}-${chain[chain.length - 1]}`;
+                elements.push(
+                  <polyline
+                    key={`${key}-fill`}
+                    points={pointsStr}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={size * 0.1}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                );
               }
             }
 

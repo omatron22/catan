@@ -496,43 +496,29 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                   !canOpponentProvide || trade.requesting.some((r) => canOpponentProvide(r))
                 );
                 return (
-                <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-2 py-2 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
-                  <div className="flex flex-col gap-1.5">
-                    {/* Resource selector buttons (top row) */}
-                    <div className="flex gap-1 justify-center">
+                <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-3 py-2.5 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
+                  <div className="flex flex-col gap-2">
+                    {/* Resource selector buttons (top row) — adds to requesting */}
+                    <div className="flex gap-1.5 justify-center">
                       {ALL_RESOURCES.map((res) => (
                         <button
                           key={res}
                           onClick={() => handleAddToRequesting(res)}
-                          className={`w-7 h-7 flex items-center justify-center border-2 border-[#8b7355] hover:border-amber-500 hover:scale-110 transition-all${trade.shakenResource === res ? " res-shake" : ""}`}
+                          className={`w-8 h-8 flex items-center justify-center border-2 border-[#8b7355] hover:border-amber-500 hover:scale-110 transition-all${trade.shakenResource === res ? " res-shake" : ""}`}
                           style={{ backgroundColor: RESOURCE_COLORS[res] }}
                           title={`Request ${RESOURCE_LABELS[res]}`}
                         >
-                          <ResourceIcon resource={res} size={14} />
+                          <ResourceIcon resource={res} size={16} />
                         </button>
                       ))}
                     </div>
 
-                    {/* Offering row */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[7px] text-green-700 font-bold w-[52px] shrink-0">OFFERING:</span>
-                      <div className="flex items-center gap-0.5 flex-wrap min-w-[40px]">
-                        {trade.offering.length === 0 ? (
-                          <span className="text-[6px] text-gray-500">click your cards</span>
-                        ) : (
-                          trade.offering.map((res, i) => (
-                            <MiniCard key={`o-${i}`} resource={res} onClick={() => trade.removeFromOffering(i)} glow="green" />
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Requesting row */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[7px] text-red-700 font-bold w-[52px] shrink-0">REQUESTING:</span>
-                      <div className="flex items-center gap-0.5 flex-wrap min-w-[40px]">
+                    {/* Requesting row (what you want — top) */}
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[7px] text-red-700 font-bold uppercase tracking-wide">Want</span>
+                      <div className="flex items-center gap-1 flex-wrap min-h-[36px] bg-[#e8dcc4] border border-[#c4b498] px-1.5 py-1">
                         {trade.requesting.length === 0 ? (
-                          <span className="text-[6px] text-gray-500">click resources above</span>
+                          <span className="text-[7px] text-gray-400 italic">click resources above</span>
                         ) : (
                           trade.requesting.map((res, i) => (
                             <MiniCard key={`r-${i}`} resource={res} onClick={() => trade.removeFromRequesting(i)} glow="red" />
@@ -541,13 +527,27 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                       </div>
                     </div>
 
+                    {/* Offering row (what you give — bottom) */}
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[7px] text-green-700 font-bold uppercase tracking-wide">Give</span>
+                      <div className="flex items-center gap-1 flex-wrap min-h-[36px] bg-[#e8dcc4] border border-[#c4b498] px-1.5 py-1">
+                        {trade.offering.length === 0 ? (
+                          <span className="text-[7px] text-gray-400 italic">click your cards below</span>
+                        ) : (
+                          trade.offering.map((res, i) => (
+                            <MiniCard key={`o-${i}`} resource={res} onClick={() => trade.removeFromOffering(i)} glow="green" />
+                          ))
+                        )}
+                      </div>
+                    </div>
+
                     {/* Action buttons row */}
-                    <div className="flex gap-1 justify-end">
+                    <div className="flex gap-1.5 justify-end">
                       {bankInfo && (
                         <button
                           onClick={bankValid ? handleBankTradeSimple : undefined}
                           disabled={!bankValid}
-                          className={`px-2 py-1 text-[7px] pixel-btn ${
+                          className={`px-2.5 py-1 text-[8px] pixel-btn ${
                             bankValid
                               ? "bg-amber-600 text-white"
                               : "bg-[#d4c4a8] text-gray-500 cursor-not-allowed"
@@ -563,7 +563,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
                       {showOffer && (
                         <button
                           onClick={handlePlayerTrade}
-                          className="px-2 py-1 text-[7px] pixel-btn bg-green-600 text-white"
+                          className="px-2.5 py-1 text-[8px] pixel-btn bg-green-600 text-white"
                         >
                           OFFER
                         </button>
@@ -571,7 +571,7 @@ const GameView = forwardRef<GameViewHandle, GameViewProps>(function GameView(pro
 
                       <button
                         onClick={() => trade.closeTrade()}
-                        className="px-1.5 py-1 text-[7px] text-gray-600 pixel-btn bg-[#d4c4a8] hover:bg-[#c4b498]"
+                        className="px-2 py-1 text-[8px] text-gray-600 pixel-btn bg-[#d4c4a8] hover:bg-[#c4b498]"
                       >
                         X
                       </button>

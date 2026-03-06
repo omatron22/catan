@@ -189,16 +189,32 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     });
   }
 
-  // Settlement — scored by vertex production EV + spatial urgency
+  // Settlement — highest strategic priority (1 VP + new production)
   let hasReachableVertex = false;
   if (canAfford(player, BUILDING_COSTS.settlement)) {
     const vertex = pickBuildVertex(state, botIndex);
     if (vertex) {
       hasReachableVertex = true;
       const prod = computeVertexProduction(state, vertex);
-      let score = prod.totalEV * 100 * w.settlementScore;
+      let score = prod.totalEV * 120 * w.settlementScore;
+      score += 25; // base VP bonus — settlements are always valuable
       score += context.spatialUrgency * 30;
-      if (context.isEndgame) score += 20;
+      if (context.isEndgame) score += 30;
+      // Bonus for resource diversity the player is currently missing
+      const currentResources = new Set<Resource>();
+      for (const s of player.settlements) {
+        const sp = computeVertexProduction(state, s);
+        for (const r of sp.resourceSet) currentResources.add(r);
+      }
+      for (const s of player.cities) {
+        const sp = computeVertexProduction(state, s);
+        for (const r of sp.resourceSet) currentResources.add(r);
+      }
+      let newResCount = 0;
+      for (const r of prod.resourceSet) {
+        if (!currentResources.has(r)) newResCount++;
+      }
+      score += newResCount * 12; // diversification bonus
       options.push({
         name: "settlement",
         score,
@@ -226,19 +242,45 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     const edge = pickBuildRoad(state, botIndex, context);
     if (edge) {
       let score = 10 * w.roadScore;
+
+      // Longest road pursuit
       if (context.distanceToLongestRoad <= 2 && player.longestRoadLength >= 3) score += 25;
       if (context.distanceToLongestRoad <= 1 && player.longestRoadLength >= 3) score += 40;
       if (context.longestRoadThreatened) score += 20;
       if (context.isEndgame && context.distanceToLongestRoad <= 2) score += 15;
-      // Only boost expansion roads if there's a good planned target vertex
+
+      // Expansion: only boost if no settlement spot is reachable
       if (!hasReachableVertex) {
         const roadPlan = planRoadPath(state, botIndex, context);
         if (roadPlan && roadPlan.targetScore > 10) {
-          score += 30 + roadPlan.targetScore * 0.3; // scale with how good the target is
+          score += 20 + roadPlan.targetScore * 0.2;
         } else {
-          score += 10; // mild incentive if no great target — save resources
+          score += 5; // very mild — save resources for settlement
         }
       }
+
+      // PENALTY: if we're close to affording a settlement, don't waste brick/lumber on roads
+      // Settlement costs: brick, lumber, wool, grain. Road costs: brick, lumber.
+      // If we already have wool+grain (or close), save the brick+lumber for a settlement.
+      if (hasReachableVertex) {
+        // Already can build a settlement — road should almost never win
+        score -= 20;
+      } else {
+        const { brick, lumber, wool, grain } = player.resources;
+        const settlementResourcesReady = (wool >= 1 ? 1 : 0) + (grain >= 1 ? 1 : 0);
+        if (settlementResourcesReady >= 2 && brick >= 1 && lumber >= 1) {
+          // We have all 4 resources for a settlement but no reachable vertex.
+          // Only build a road if it's one road away from a good spot.
+          const roadPlan = planRoadPath(state, botIndex, context);
+          if (!roadPlan || roadPlan.path.length > 1) {
+            score -= 15; // save resources — we're not one road away
+          }
+        } else if (settlementResourcesReady >= 1 && (brick >= 2 || lumber >= 2)) {
+          // Close to settlement — mild penalty on road building
+          score -= 8;
+        }
+      }
+
       options.push({
         name: "road",
         score,

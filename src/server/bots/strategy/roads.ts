@@ -75,13 +75,20 @@ export function planRoadPath(
 
       // Score this vertex as a potential settlement site
       if (!otherBuilding) {
-        const vs = scoreVertex(state, otherEnd, playerIndex);
-        if (vs > 0) {
-          // Discount by path length — closer targets are better
-          const discountedScore = vs / (1 + newPath.length * 0.3);
-          if (discountedScore > bestScore) {
-            bestScore = discountedScore;
-            bestPath = { path: newPath, targetVertex: otherEnd, targetScore: vs };
+        // Check distance rule — skip if adjacent vertex already has a building
+        const adjVerts = adjacentVertices(otherEnd);
+        const tooClose = adjVerts.some(
+          (av) => state.board.vertices[av] !== null && state.board.vertices[av] !== undefined
+        );
+        if (!tooClose) {
+          const vs = scoreVertex(state, otherEnd, playerIndex);
+          if (vs > 0) {
+            // Discount by path length — closer targets are better
+            const discountedScore = vs / (1 + newPath.length * 0.3);
+            if (discountedScore > bestScore) {
+              bestScore = discountedScore;
+              bestPath = { path: newPath, targetVertex: otherEnd, targetScore: vs };
+            }
           }
         }
       }
@@ -141,23 +148,40 @@ export function pickBuildRoad(state: GameState, playerIndex: number, context?: B
       score += (roadPlan!.targetScore * 0.8); // Heavily boost roads on the planned path
     }
 
-    // --- Opponent blocking ---
+    // --- Competitive vertex racing ---
+    // In Catan, roads don't block opponents — only settlements do (distance rule).
+    // So instead of "blocking", we boost roads that lead us toward high-value vertices
+    // that an opponent is also racing toward, so WE can settle there first.
     if (context) {
       for (const v of [v1, v2]) {
         const building = state.board.vertices[v];
         if (building) continue; // already occupied
 
-        // Check if an opponent is 1-2 roads from this vertex
+        // Check if we could legally build a settlement here (distance rule)
+        const adjVerts = adjacentVertices(v);
+        const tooClose = adjVerts.some(
+          (av) => state.board.vertices[av] !== null && state.board.vertices[av] !== undefined
+        );
+        if (tooClose) continue;
+
+        // Check if an opponent is also heading toward this vertex
         const adjEdges = edgesAtVertex(v);
+        let opponentNearby = false;
         for (const ae of adjEdges) {
           if (ae === ek) continue;
           const roadData = state.board.edges[ae];
           if (roadData && roadData.playerIndex !== playerIndex) {
-            // Opponent has a road near this vertex — check its value
-            const vs = scoreVertex(state, v, playerIndex);
-            if (vs > 5) {
-              score += vs * 0.3 * context.weights.robberAggression;
-            }
+            opponentNearby = true;
+            break;
+          }
+        }
+
+        if (opponentNearby) {
+          // Boost: race to settle this spot before they do
+          const vs = scoreVertex(state, v, playerIndex);
+          if (vs > 5) {
+            // Only boost if we can actually connect and build here
+            score += vs * 0.4;
           }
         }
       }

@@ -1,7 +1,7 @@
 import type { GameState, Resource } from "@/shared/types/game";
 import type { GameAction } from "@/shared/types/actions";
 import { pickSetupVertex, pickSetupRoad, pickBuildVertex, computeVertexProduction } from "./strategy/placement";
-import { pickBuildRoad } from "./strategy/roads";
+import { pickBuildRoad, planRoadPath } from "./strategy/roads";
 import { pickBankTrade, pickPlayerTrade } from "./strategy/trading";
 import { pickRobberHex, pickStealTarget, pickDiscardResources } from "./strategy/robber";
 import { pickDevCardToPlay } from "./strategy/devCards";
@@ -230,7 +230,15 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
       if (context.distanceToLongestRoad <= 1 && player.longestRoadLength >= 3) score += 40;
       if (context.longestRoadThreatened) score += 20;
       if (context.isEndgame && context.distanceToLongestRoad <= 2) score += 15;
-      if (!hasReachableVertex) score += 40;
+      // Only boost expansion roads if there's a good planned target vertex
+      if (!hasReachableVertex) {
+        const roadPlan = planRoadPath(state, botIndex, context);
+        if (roadPlan && roadPlan.targetScore > 10) {
+          score += 30 + roadPlan.targetScore * 0.3; // scale with how good the target is
+        } else {
+          score += 10; // mild incentive if no great target — save resources
+        }
+      }
       options.push({
         name: "road",
         score,

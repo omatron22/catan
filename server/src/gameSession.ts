@@ -2,7 +2,7 @@ import type { TypedServer, TypedSocket, Room } from "./types.js";
 import type { GameAction } from "@/shared/types/actions";
 import type { GameConfig } from "@/shared/types/config";
 import { createGame, applyAction } from "@/server/engine/gameEngine";
-import { decideBotAction } from "@/server/bots/botController";
+import { decideBotAction, decideBotTradeResponse } from "@/server/bots/botController";
 import { filterStateForPlayer } from "./stateFilter.js";
 import { getRoom, getRoomForSocket, getPlayerSlot } from "./roomManager.js";
 import { startTurnTimer, clearTurnTimer } from "./turnTimer.js";
@@ -113,6 +113,65 @@ export function scheduleBotActions(io: TypedServer, room: Room) {
   room.botTimers = [];
 
   if (!room.gameState || room.gameState.phase === "finished") return;
+
+  // If there's a pending trade, have bots respond
+  if (room.gameState.pendingTrade) {
+    const trade = room.gameState.pendingTrade;
+    const respondingBots = room.players.filter(
+      (p) => p.isBot && p.index !== trade.fromPlayer &&
+        (trade.toPlayer === null || trade.toPlayer === p.index)
+    );
+
+    if (respondingBots.length > 0) {
+      const timer = setTimeout(() => {
+        if (!room.gameState?.pendingTrade) return;
+        const currentTrade = room.gameState.pendingTrade;
+
+        // Find first bot that accepts
+        for (const bot of respondingBots) {
+          const decision = decideBotTradeResponse(room.gameState, bot.index);
+          if (decision === "accept") {
+            const result = applyAction(room.gameState, {
+              type: "accept-trade",
+              playerIndex: bot.index,
+              tradeId: currentTrade.id,
+            });
+            if (result.valid && result.newState) {
+              room.gameState = result.newState;
+              if (result.events?.length) {
+                io.to(room.code).emit("game:events", { events: result.events });
+              }
+              broadcastState(io, room);
+              scheduleBotActions(io, room);
+              return;
+            }
+          }
+        }
+
+        // No bot accepted — if there are no human targets, cancel the trade
+        const hasHumanTargets = room.players.some(
+          (p) => !p.isBot && p.index !== currentTrade.fromPlayer &&
+            (currentTrade.toPlayer === null || currentTrade.toPlayer === p.index)
+        );
+        if (!hasHumanTargets) {
+          const result = applyAction(room.gameState, {
+            type: "cancel-trade",
+            playerIndex: currentTrade.fromPlayer,
+            tradeId: currentTrade.id,
+          });
+          if (result.valid && result.newState) {
+            room.gameState = result.newState;
+            broadcastState(io, room);
+            scheduleBotActions(io, room);
+          }
+        }
+      }, BOT_MOVE_DELAY_MS);
+      room.botTimers.push(timer);
+      return;
+    }
+    // If no bots need to respond, fall through (humans handle it)
+    return;
+  }
 
   // Check if any bot needs to act (discard phase — multiple bots may need to)
   if (room.gameState.turnPhase === "discard") {

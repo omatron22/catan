@@ -14,6 +14,7 @@ import {
   startMusic, stopMusic,
 } from "@/app/utils/sounds";
 import type { Announcement } from "@/app/components/ui/AnnouncementOverlay";
+import { MiniCard } from "@/app/components/game/helpers";
 import type { GameAction } from "@/shared/types/actions";
 import type { Resource, GameLogEntry } from "@/shared/types/game";
 import { PLAYER_COLORS } from "@/shared/types/game";
@@ -559,6 +560,123 @@ export default function OnlineGamePage() {
     ...chatMessages.map((m) => ({ timestamp: m.timestamp, playerIndex: m.playerIndex, message: m.text, type: "chat" as const })),
   ].sort((a, b) => a.timestamp - b.timestamp);
 
+  // --- Trade overlay for online mode ---
+  const pendingTrade = gameState.pendingTrade;
+  const iAmTradeInitiator = pendingTrade && pendingTrade.fromPlayer === myPlayerIndex;
+  const iAmTradeTarget = pendingTrade && !iAmTradeInitiator && (pendingTrade.toPlayer === null || pendingTrade.toPlayer === myPlayerIndex);
+
+  const myPlayer = gameState.players.find((p) => p.index === myPlayerIndex);
+  const canAffordTrade = pendingTrade && myPlayer ? Object.entries(pendingTrade.requesting).every(
+    ([r, amt]) => (amt || 0) <= myPlayer.resources[r as Resource]
+  ) : false;
+
+  const tradeOverlay = pendingTrade ? (() => {
+    if (iAmTradeTarget) {
+      // I'm being offered a trade — show accept/reject
+      const initiator = gameState.players[pendingTrade.fromPlayer];
+      const initiatorColor = PLAYER_COLOR_HEX[initiator.color];
+      return (
+        <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-4 py-3 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-pixel text-[9px] font-bold" style={{ color: initiatorColor }}>{initiator.name.toUpperCase()}</span>
+              <span className="font-pixel text-[8px] text-gray-700">OFFERS YOU A TRADE:</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <span className="font-pixel text-[7px] text-red-700 font-bold">YOU GIVE:</span>
+                <div className="flex gap-0.5">
+                  {Object.entries(pendingTrade.requesting).flatMap(([r, amt]) =>
+                    Array.from({ length: amt! }, (_, i) => (
+                      <MiniCard key={`r-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="red" />
+                    ))
+                  )}
+                </div>
+              </div>
+              <span className="font-pixel text-[10px] text-gray-400">&rarr;</span>
+              <div className="flex items-center gap-1">
+                <span className="font-pixel text-[7px] text-green-700 font-bold">YOU GET:</span>
+                <div className="flex gap-0.5">
+                  {Object.entries(pendingTrade.offering).flatMap(([r, amt]) =>
+                    Array.from({ length: amt! }, (_, i) => (
+                      <MiniCard key={`o-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="green" />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={canAffordTrade ? () => handleAction({ type: "accept-trade", playerIndex: myPlayerIndex, tradeId: pendingTrade.id }) : undefined}
+                disabled={!canAffordTrade}
+                className={`px-4 py-1.5 font-pixel text-[8px] border-2 border-black ${
+                  canAffordTrade
+                    ? "bg-green-600 text-white hover:bg-green-500"
+                    : "bg-gray-500 text-gray-300 cursor-not-allowed"
+                }`}
+                title={canAffordTrade ? "Accept this trade" : "You don't have the required resources"}
+              >
+                ACCEPT
+              </button>
+              <button
+                onClick={() => handleAction({ type: "reject-trade", playerIndex: myPlayerIndex, tradeId: pendingTrade.id })}
+                className="px-4 py-1.5 bg-red-600 text-white font-pixel text-[8px] border-2 border-black hover:bg-red-500"
+              >
+                REJECT
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (iAmTradeInitiator) {
+      // I initiated the trade — show waiting + cancel
+      return (
+        <div className="bg-[#f0e6d0] border-2 border-[#8b7355] px-4 py-3 pointer-events-auto max-w-[calc(100vw-1rem)]" style={{ backdropFilter: "blur(4px)" }}>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-pixel text-[8px] text-gray-700 animate-pulse">WAITING FOR RESPONSES...</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <span className="font-pixel text-[7px] text-green-700 font-bold">GIVE:</span>
+                <div className="flex gap-0.5">
+                  {Object.entries(pendingTrade.offering).flatMap(([r, amt]) =>
+                    Array.from({ length: amt! }, (_, i) => (
+                      <MiniCard key={`o-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="green" />
+                    ))
+                  )}
+                </div>
+              </div>
+              <span className="font-pixel text-[10px] text-gray-400">&rarr;</span>
+              <div className="flex items-center gap-1">
+                <span className="font-pixel text-[7px] text-red-700 font-bold">WANT:</span>
+                <div className="flex gap-0.5">
+                  {Object.entries(pendingTrade.requesting).flatMap(([r, amt]) =>
+                    Array.from({ length: amt! }, (_, i) => (
+                      <MiniCard key={`r-${r}-${i}`} resource={r as Resource} onClick={() => {}} glow="red" />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <button
+                onClick={() => handleAction({ type: "cancel-trade", playerIndex: myPlayerIndex, tradeId: pendingTrade.id })}
+                className="px-4 py-1.5 bg-gray-600 text-white font-pixel text-[8px] border-2 border-black hover:bg-gray-500"
+              >
+                CANCEL TRADE
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  })() : null;
+
   return (
     <>
       <GameView
@@ -578,6 +696,8 @@ export default function OnlineGamePage() {
         turnDeadline={gameState.turnDeadline}
         error={localError || error}
         connected={connected}
+        tradeOverlay={tradeOverlay}
+        showTradeOverlay={!!pendingTrade && (!!iAmTradeTarget || !!iAmTradeInitiator)}
         announcement={announcement}
         onDismissAnnouncement={() => setAnnouncement(null)}
         onDiceAnimationStart={playDiceRoll}

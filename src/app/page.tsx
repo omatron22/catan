@@ -127,20 +127,24 @@ export default function Home() {
   const vpToWin = customVp;
 
   // Load saved game mode preferences on mount
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
   useEffect(() => {
     const modePrefs = loadGameModePrefs();
-    if (!modePrefs) return;
-    if (modePrefs.fairDice !== undefined) setFairDice(modePrefs.fairDice);
-    if (modePrefs.friendlyRobber !== undefined) setFriendlyRobber(modePrefs.friendlyRobber);
-    if (modePrefs.doublesRollAgain !== undefined) setDoublesRollAgain(modePrefs.doublesRollAgain);
-    if (modePrefs.sheepNuke !== undefined) setSheepNuke(modePrefs.sheepNuke);
-    if (modePrefs.turnTimer !== undefined) setTurnTimer(modePrefs.turnTimer as TurnTimer);
-    if (modePrefs.vpToWin !== undefined) setCustomVp(modePrefs.vpToWin);
-    if (modePrefs.expansionBoard !== undefined) setExpansionBoard(modePrefs.expansionBoard);
+    if (modePrefs) {
+      if (modePrefs.fairDice !== undefined) setFairDice(modePrefs.fairDice);
+      if (modePrefs.friendlyRobber !== undefined) setFriendlyRobber(modePrefs.friendlyRobber);
+      if (modePrefs.doublesRollAgain !== undefined) setDoublesRollAgain(modePrefs.doublesRollAgain);
+      if (modePrefs.sheepNuke !== undefined) setSheepNuke(modePrefs.sheepNuke);
+      if (modePrefs.turnTimer !== undefined) setTurnTimer(modePrefs.turnTimer as TurnTimer);
+      if (modePrefs.vpToWin !== undefined) setCustomVp(modePrefs.vpToWin);
+      if (modePrefs.expansionBoard !== undefined) setExpansionBoard(modePrefs.expansionBoard);
+    }
+    setPrefsLoaded(true);
   }, []);
 
-  // Save game mode preferences whenever they change
+  // Save game mode preferences whenever they change (only after initial load completes)
   useEffect(() => {
+    if (!prefsLoaded) return;
     saveGameModePrefs({
       fairDice,
       friendlyRobber,
@@ -151,7 +155,7 @@ export default function Home() {
       expansionBoard,
       gameMode: "classic",
     });
-  }, [fairDice, friendlyRobber, doublesRollAgain, sheepNuke, turnTimer, customVp, expansionBoard]);
+  }, [prefsLoaded, fairDice, friendlyRobber, doublesRollAgain, sheepNuke, turnTimer, customVp, expansionBoard]);
 
   // Close color picker on outside click
   useEffect(() => {

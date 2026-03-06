@@ -340,18 +340,41 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     if (action) return action;
   }
 
-  // 3. Consider bot-initiated player trade
+  // 3. Consider bot-initiated player trade (with escalation on rejection)
   const playerTrade = pickPlayerTrade(state, botIndex, context);
   if (playerTrade) {
-    const hash = getTradeHash(playerTrade.offering, playerTrade.requesting);
+    // Build a pair key for the resource combo (what we're offering ↔ what we want)
+    const offerRes = Object.keys(playerTrade.offering)[0] as Resource;
+    const requestRes = Object.keys(playerTrade.requesting)[0] as Resource;
+    const pairKey = `${offerRes}->${requestRes}`;
     const mem = proposedTradeMemory.get(botIndex);
-    const tooRecent = mem && mem.hash === hash && state.turnNumber - mem.turn < 3;
-    if (!tooRecent) {
-      proposedTradeMemory.set(botIndex, { hash, turn: state.turnNumber });
+
+    // Check how many times this pair was rejected to determine escalation.
+    // If the bot is proposing the same pair again, it means previous attempts failed
+    // (if they'd succeeded, the bot would have the resource and wouldn't re-propose).
+    let rejections = 0;
+    if (mem && mem.pairKey === pairKey) {
+      // Same pair proposed again = previous attempt was rejected, escalate
+      rejections = mem.rejections + 1;
+    }
+
+    // Determine max offer amount based on urgency
+    const maxOffer = playerTrade.maxOffer ?? 1;
+    // Escalate: 1 → 2 → 3, capped by maxOffer and available surplus
+    const offerAmount = Math.min(1 + rejections, maxOffer, playerTrade.surplusCount);
+
+    const finalOffering = { [offerRes]: offerAmount };
+    const hash = getTradeHash(finalOffering, playerTrade.requesting);
+
+    // Don't re-send the exact same trade within 2 turns, and don't propose if can't escalate further
+    const maxedOut = mem && mem.pairKey === pairKey && offerAmount <= mem.rejections;
+    const tooRecent = mem && mem.lastHash === hash && state.turnNumber - mem.turn < 2;
+    if (!tooRecent && !maxedOut && offerAmount >= 1) {
+      proposedTradeMemory.set(botIndex, { pairKey, rejections, turn: state.turnNumber, lastHash: hash });
       return {
         type: "offer-trade",
         playerIndex: botIndex,
-        offering: playerTrade.offering,
+        offering: finalOffering,
         requesting: playerTrade.requesting,
         toPlayer: null, // open offer
       };
@@ -688,8 +711,9 @@ export function generateBotCounterOffer(
 // Trade memory — bots remember their decision on identical trades for several turns
 const tradeMemory = new Map<string, { tradeHash: string; turn: number; decision: "accept" | "reject" }>();
 
-// Per-bot trade proposal memory — prevents bots from proposing the same trade repeatedly
-const proposedTradeMemory = new Map<number, { hash: string; turn: number }>();
+// Per-bot trade proposal memory — tracks rejections for escalation (1:1 → 2:1 → 3:1)
+// Key: botIndex, Value: { resource pair key, rejection count, last turn offered }
+const proposedTradeMemory = new Map<number, { pairKey: string; rejections: number; turn: number; lastHash: string }>();
 
 // Counter-offer memory — bots give the same counter-offer for the same trade within a turn
 const counterOfferMemory = new Map<string, {

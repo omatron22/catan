@@ -11,6 +11,10 @@ interface BankTrade {
 export interface PlayerTradeOffer {
   offering: Partial<Record<Resource, number>>;
   requesting: Partial<Record<Resource, number>>;
+  /** Max the bot is willing to offer for this resource (based on urgency) */
+  maxOffer: number;
+  /** How many surplus cards the bot has of the offered resource */
+  surplusCount: number;
 }
 
 /**
@@ -75,12 +79,34 @@ export function pickPlayerTrade(
   );
   if (!requestRes) return null;
 
-  // Always start with 1:1 offers — escalate only if previous offers were rejected
-  // The proposedTradeMemory in botController prevents re-sending the same trade,
-  // so bots will naturally try 1:1 first, then move on to other actions.
+  // Determine max willingness to offer based on urgency:
+  // - How close are we to completing our build goal? (fewer missing = more urgent)
+  // - Are we racing opponents for a contested spot? (high spatialUrgency)
+  // - Is this a resource we can't produce? (missing resources = desperate)
+  // Base: willing to go 1:1. Escalate to 2:1 or 3:1 based on urgency.
+  let maxOffer = 1;
+
+  // Close to completing build goal — willing to pay more
+  if (totalMissing <= 2) maxOffer = 2;
+  if (totalMissing === 1) maxOffer = 3;
+
+  // Racing for a contested spot — willing to pay a lot
+  if (context.spatialUrgency >= 0.6) maxOffer = Math.max(maxOffer, 2);
+  if (context.spatialUrgency >= 0.8) maxOffer = Math.max(maxOffer, 3);
+
+  // Resource we can't produce at all — more willing to pay
+  if (context.missingResources.includes(requestRes)) maxOffer = Math.max(maxOffer, 2);
+
+  // Cap at what we can actually spare (keep at least 1 of the offered resource)
+  maxOffer = Math.min(maxOffer, offerCount - 1);
+  if (maxOffer < 1) maxOffer = 1;
+
+  // Always start at 1:1 — escalation happens in botController based on rejections
   return {
     offering: { [offerRes]: 1 },
     requesting: { [requestRes]: 1 },
+    maxOffer,
+    surplusCount: offerCount,
   };
 }
 

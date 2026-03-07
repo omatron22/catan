@@ -49,29 +49,75 @@ export function pickPlayerTrade(
   }
   if (needed.length === 0) return null;
 
-  // Only hoard for goal when within 1 resource of completion
   const totalMissing = context.buildGoal
     ? Object.values(context.buildGoal.missingResources).reduce((sum, n) => sum + (n || 0), 0)
     : Infinity;
 
-  // Find surplus: resources we have 2+ of that we don't urgently need
-  const surplusList: { res: Resource; count: number }[] = [];
-  for (const res of ALL_RESOURCES) {
-    if (needed.includes(res)) continue;
-    if (player.resources[res] < 2) continue;
-    // Only protect resources when very close to completing build goal
-    if (totalMissing <= 1) {
-      const goalNeed = getGoalNeed(context, res);
-      if (goalNeed > 0 && player.resources[res] <= goalNeed + 1) continue;
+  // --- Compute true surplus per resource ---
+  // "Surplus" = what you can safely give away without hurting your plans.
+  // A real player considers:
+  //   1. Current build goal needs (never trade away what you need right now)
+  //   2. Next build goal needs (protect resources for your follow-up plan)
+  //   3. Production rate (if you produce it every turn, it's cheap to give away)
+  //   4. Robber risk (7+ cards means some will be stolen — better to trade than lose)
+
+  // Gather needs across current + next build goal
+  const currentGoalNeeds: Partial<Record<Resource, number>> = {};
+  const futureNeeds: Partial<Record<Resource, number>> = {};
+  if (context.buildGoal) {
+    for (const [r, amt] of Object.entries(context.buildGoal.missingResources)) {
+      if ((amt || 0) > 0) currentGoalNeeds[r as Resource] = amt as number;
     }
-    surplusList.push({ res, count: player.resources[res] });
+  }
+  // Look at second build goal for what to protect
+  if (context.buildGoals.length > 1) {
+    const nextGoal = context.buildGoals[1];
+    for (const [r, amt] of Object.entries(nextGoal.missingResources)) {
+      if ((amt || 0) > 0) futureNeeds[r as Resource] = amt as number;
+    }
+  }
+
+  const totalHand = Object.values(player.resources).reduce((s, n) => s + n, 0);
+
+  const surplusList: { res: Resource; spendable: number; count: number; value: number }[] = [];
+  for (const res of ALL_RESOURCES) {
+    if (needed.includes(res)) continue; // never offer what we're trying to get
+    const have = player.resources[res];
+    if (have < 2) continue;
+
+    // How many do we need to keep for our plans?
+    const keepForCurrent = currentGoalNeeds[res] ?? 0;
+    const keepForFuture = futureNeeds[res] ?? 0;
+    // Always reserve for current goal, partially reserve for future goal
+    const reserved = keepForCurrent + Math.ceil(keepForFuture * 0.5);
+    const spendable = Math.max(0, have - Math.max(reserved, 1)); // keep at least 1
+    if (spendable <= 0) continue;
+
+    // Value: how "expensive" is this resource to us?
+    // Low production = high value, high production = low value (cheap to give)
+    const prodRate = context.productionRates[res];
+    let value = 1;
+    if (prodRate === 0) value = 3; // can't produce it — very valuable
+    else if (prodRate <= 0.05) value = 2; // rare production
+    else value = 1; // decent production, cheap to give
+
+    // If we need it for future builds, bump value
+    if (keepForFuture > 0) value += 1;
+
+    surplusList.push({ res, spendable, count: have, value });
   }
   if (surplusList.length === 0) return null;
 
-  // Pick the most surplus resource
-  surplusList.sort((a, b) => b.count - a.count);
-  const offerRes = surplusList[0].res;
-  const offerCount = surplusList[0].count;
+  // Pick the best resource to offer: most spendable, lowest value (cheapest to give)
+  surplusList.sort((a, b) => {
+    // Primary: lowest value first (cheapest to give away)
+    if (a.value !== b.value) return a.value - b.value;
+    // Secondary: most spendable (most we can spare)
+    return b.spendable - a.spendable;
+  });
+  const best = surplusList[0];
+  const offerRes = best.res;
+  const spendable = best.spendable;
 
   // Pick a needed resource that at least one opponent actually has
   const requestRes = needed.find((r) =>
@@ -79,44 +125,46 @@ export function pickPlayerTrade(
   );
   if (!requestRes) return null;
 
-  // Determine max willingness to offer based on urgency.
-  // Think like a real player: if you need 1 resource to win and have 10 cards
-  // of something else, you'd offer all of them. But for a casual need, 1:1 is fine.
-  const totalHand = Object.values(player.resources).reduce((s, n) => s + n, 0);
-  const botVP = context.ownVP;
-  const vpToWin = context.vpToWin;
-  const vpAway = vpToWin - botVP;
+  // --- Determine max willingness to offer ---
+  // Scales with urgency. A real player asks "how badly do I need this?"
+  const vpAway = context.vpToWin - context.ownVP;
 
   let maxOffer = 1;
 
-  // 1 VP from winning — give almost everything to close it out
+  // 1 VP from winning + 1 resource away — give everything you can spare
   if (vpAway <= 1 && totalMissing === 1) {
-    maxOffer = offerCount; // dump the whole surplus
+    maxOffer = spendable;
   }
-  // 2 VP away and only need 1 resource — very aggressive
+  // 2 VP away, 1 resource short — very aggressive
   else if (vpAway <= 2 && totalMissing === 1) {
-    maxOffer = Math.min(offerCount, Math.max(4, Math.floor(offerCount * 0.7)));
+    maxOffer = Math.max(4, Math.ceil(spendable * 0.8));
   }
-  // Close to completing build goal
+  // Close to completing a build
   else if (totalMissing === 1) {
-    maxOffer = Math.min(offerCount, 4);
+    maxOffer = Math.min(spendable, 4);
   }
   else if (totalMissing <= 2) {
-    maxOffer = Math.min(offerCount, 3);
+    maxOffer = Math.min(spendable, 3);
   }
 
-  // Racing for a contested spot — willing to pay a lot more
-  if (context.spatialUrgency >= 0.8) maxOffer = Math.max(maxOffer, Math.min(offerCount, 4));
-  else if (context.spatialUrgency >= 0.6) maxOffer = Math.max(maxOffer, Math.min(offerCount, 3));
+  // Racing opponents for a spot
+  if (context.spatialUrgency >= 0.8) maxOffer = Math.max(maxOffer, Math.min(spendable, 4));
+  else if (context.spatialUrgency >= 0.6) maxOffer = Math.max(maxOffer, Math.min(spendable, 3));
 
-  // Resource we can't produce at all — more willing to overpay
-  if (context.missingResources.includes(requestRes)) maxOffer = Math.max(maxOffer, Math.min(offerCount, 3));
+  // Can't produce the resource we need — willing to overpay
+  if (context.missingResources.includes(requestRes)) maxOffer = Math.max(maxOffer, Math.min(spendable, 3));
 
-  // Large hand and resource is plentiful — can afford to be generous
-  if (totalHand >= 8 && offerCount >= 4) maxOffer = Math.max(maxOffer, 3);
+  // Robber risk: 7+ cards means we might lose half — better to trade now
+  if (totalHand >= 7) {
+    const extraCards = totalHand - 6; // how many over "safe" threshold
+    maxOffer = Math.max(maxOffer, Math.min(spendable, 1 + Math.floor(extraCards * 0.5)));
+  }
 
-  // Cap: always keep at least 1 card of the resource we're offering
-  maxOffer = Math.min(maxOffer, offerCount - 1);
+  // Cheap resource (high production) — can afford to be generous
+  if (best.value === 1 && spendable >= 3) maxOffer = Math.max(maxOffer, Math.min(spendable, 3));
+
+  // Final cap
+  maxOffer = Math.min(maxOffer, spendable);
   if (maxOffer < 1) maxOffer = 1;
 
   // Always start at 1:1 — escalation happens in botController based on rejections
@@ -124,7 +172,7 @@ export function pickPlayerTrade(
     offering: { [offerRes]: 1 },
     requesting: { [requestRes]: 1 },
     maxOffer,
-    surplusCount: offerCount,
+    surplusCount: spendable,
   };
 }
 

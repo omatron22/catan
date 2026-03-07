@@ -662,6 +662,15 @@ function handleOfferTrade(
     }
   }
 
+  // Validate that at least one opponent could fulfill the requested resources
+  const targets = state.players.filter((_, i) => i !== playerIndex && (toPlayer === null || i === toPlayer));
+  const anyCanFulfill = targets.some((p) =>
+    Object.entries(requesting).every(([res, amount]) => p.resources[res as Resource] >= (amount || 0))
+  );
+  if (!anyCanFulfill) {
+    return { valid: false, error: "No opponent can fulfill this trade" };
+  }
+
   const newState = cloneState(state);
   newState.pendingTrades.push({
     id: `trade-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,

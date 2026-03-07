@@ -38,15 +38,16 @@ export default function ResourceSelector(props: Props) {
       return;
     }
 
-    // Year of Plenty: toggle selection
-    const idx = selected.indexOf(res);
-    if (idx !== -1) {
-      // Unselect: remove this occurrence
-      const copy = [...selected];
-      copy.splice(idx, 1);
-      setSelected(copy);
-    } else if (selected.length < 2) {
+    // Year of Plenty: pick up to 2 (can be same resource twice)
+    const count = selected.filter((r) => r === res).length;
+    if (selected.length < 2) {
+      // Still have room — add it
       setSelected([...selected, res]);
+    } else if (count > 0) {
+      // Already at 2 — toggle off one occurrence
+      const copy = [...selected];
+      copy.splice(copy.indexOf(res), 1);
+      setSelected(copy);
     }
   }
 

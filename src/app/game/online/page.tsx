@@ -536,8 +536,8 @@ export default function OnlineGamePage() {
                         {player.index === hostIndex && !player.isBot && <span className="text-amber-600 text-[6px] ml-1">HOST</span>}
                       </span>
                       )}
-                      {/* Combined style + color button */}
-                      {canPickColor && (
+                      {/* Style + color button (interactive for self/bots, static for others) */}
+                      {canPickColor ? (
                         <button
                           className={`w-7 h-7 flex items-center justify-center border-2 shrink-0 ${stylePickerOpen === player.index ? "border-amber-500 bg-amber-50" : "border-gray-400 hover:border-gray-600"}`}
                           onClick={() => { setStylePickerOpen(stylePickerOpen === player.index ? null : player.index); }}
@@ -545,6 +545,12 @@ export default function OnlineGamePage() {
                         >
                           <StylePreview style={(player.buildingStyle as BuildingStyle) ?? DEFAULT_BUILDING_STYLE} type="settlement" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
                         </button>
+                      ) : (
+                        <div
+                          className="w-7 h-7 flex items-center justify-center border-2 border-gray-400 shrink-0"
+                        >
+                          <StylePreview style={(player.buildingStyle as BuildingStyle) ?? DEFAULT_BUILDING_STYLE} type="settlement" color={PLAYER_COLOR_HEX[player.color] ?? "#888"} />
+                        </div>
                       )}
                       {isHost && player.isBot && (
                         <button className="w-4 h-4 font-pixel text-[9px] text-red-600 hover:text-red-800 shrink-0" onClick={() => handleRemoveBot(player.index)} title="Remove bot">X</button>

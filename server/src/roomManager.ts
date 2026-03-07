@@ -261,15 +261,25 @@ function handleJoin(
   broadcastLobbyState(io, room);
 }
 
+const BOT_DEFAULTS: { name: string; style: string }[] = [
+  { name: "Chungus", style: "medieval" },
+  { name: "Lebron",  style: "modern" },
+  { name: "Luffy",   style: "eastern" },
+  { name: "Keyan",   style: "nordic" },
+  { name: "Logan",   style: "colonial" },
+  { name: "Sakura",  style: "eastern" },
+  { name: "Hank",    style: "medieval" },
+];
+
 function handleAddBot(io: TypedServer, socket: TypedSocket, difficulty: string, personality?: string) {
   const room = getRoomForSocket(socket.id);
   if (!room || room.hostSocketId !== socket.id) return;
   if (room.gameState) return; // can't add bots mid-game
   if (room.players.length >= 8) return;
 
-  const botNames = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace"];
   const usedNames = new Set(room.players.map((p) => p.name));
-  const name = botNames.find((n) => !usedNames.has(n)) ?? `Bot ${room.players.length}`;
+  const botDef = BOT_DEFAULTS.find((b) => !usedNames.has(b.name));
+  const name = botDef?.name ?? `Bot ${room.players.length}`;
 
   // Validate personality
   const validPersonality = personality && (BOT_PERSONALITIES as readonly string[]).includes(personality)
@@ -284,6 +294,7 @@ function handleAddBot(io: TypedServer, socket: TypedSocket, difficulty: string, 
     reconnectToken: null,
     disconnectedAt: null,
     color: firstUnusedColor(room),
+    buildingStyle: (botDef?.style ?? "classic") as BuildingStyle,
     personality: validPersonality,
   });
   broadcastLobbyState(io, room);

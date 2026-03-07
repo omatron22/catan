@@ -103,11 +103,22 @@ export function handleGameAction(
       // Check if all responders for this trade have answered
       const allResponded = Object.values(tradeResps).every((r) => r.status !== "pending");
       const anyAccepted = Object.values(tradeResps).some((r) => r.status === "accepted");
-      const anyCounters = Object.values(tradeResps).some((r) => r.counterOffer != null);
       // Also check if the trade has engine-level acceptors
       const trade = room.gameState.pendingTrades.find((t) => t.id === tradeId);
       const hasEngineAcceptors = trade && trade.acceptedBy.length > 0;
-      if (allResponded && !anyAccepted && !anyCounters && !hasEngineAcceptors && trade) {
+      // For bot-initiated trades: if all humans rejected, cancel immediately
+      // (bot counter-offers to a bot trade are meaningless)
+      const isBotTrade = trade && room.players[trade.fromPlayer]?.isBot;
+      const allHumansRejected = trade && room.players
+        .filter((p) => !p.isBot && p.index !== trade.fromPlayer)
+        .every((p) => tradeResps[p.index]?.status === "rejected");
+
+      const shouldCancel = trade && !hasEngineAcceptors && (
+        (allResponded && !anyAccepted) ||
+        (isBotTrade && allHumansRejected)
+      );
+
+      if (shouldCancel) {
         const cancelResult = applyAction(room.gameState, {
           type: "cancel-trade",
           playerIndex: trade.fromPlayer,

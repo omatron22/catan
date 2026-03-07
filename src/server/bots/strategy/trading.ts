@@ -163,6 +163,30 @@ export function pickPlayerTrade(
   // Cheap resource (high production) — can afford to be generous
   if (best.value === 1 && spendable >= 3) maxOffer = Math.max(maxOffer, Math.min(spendable, 3));
 
+  // --- Opponent benefit check ---
+  // Giving away N cards helps the opponent too. Only overpay (2+ for 1) when
+  // the benefit to us clearly outweighs the gift to them.
+  // A 1:1 trade is always fair. Anything above that needs justification.
+  if (maxOffer > 1) {
+    // How far ahead is the leading opponent?
+    const maxOpponentVP = Math.max(...context.playerThreats.map((t) => t.visibleVP));
+    const vpLead = maxOpponentVP - context.ownVP;
+
+    // If an opponent is ahead of us, be stingy — don't feed the leader
+    if (vpLead >= 3) {
+      maxOffer = 1; // only 1:1 when far behind
+    } else if (vpLead >= 2) {
+      maxOffer = Math.min(maxOffer, 2);
+    }
+
+    // Even when we're ahead or tied, cap generosity unless truly urgent
+    // "Truly urgent" = about to win, or racing for a spot
+    const trulyUrgent = (vpAway <= 2 && totalMissing <= 1) || context.spatialUrgency >= 0.7;
+    if (!trulyUrgent && maxOffer > 2) {
+      maxOffer = 2; // don't give 3+ for 1 without a strong reason
+    }
+  }
+
   // Final cap
   maxOffer = Math.min(maxOffer, spendable);
   if (maxOffer < 1) maxOffer = 1;

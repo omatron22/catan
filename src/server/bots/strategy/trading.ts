@@ -214,6 +214,11 @@ export function pickBankTrade(state: GameState, playerIndex: number, context?: B
     }
   }
 
+  // Compute urgency for 4:1 gating
+  const totalHand = Object.values(player.resources).reduce((s, n) => s + n, 0);
+  const vpAway = context ? context.vpToWin - context.ownVP : 10;
+  const planMissing = context?.settlementPlan?.totalMissing ?? 99;
+
   const candidates: { trade: BankTrade; score: number }[] = [];
 
   for (let ni = 0; ni < needs.length; ni++) {
@@ -232,6 +237,20 @@ export function pickBankTrade(state: GameState, playerIndex: number, context?: B
       // Don't trade away resources we also need
       const giveNeed = needs.find((n) => n === giving);
       if (giveNeed && player.resources[giving] <= ratio + 1) continue;
+
+      // === 4:1 GATE ===
+      // Theory: "4:1 trades are terrible — only do them when desperate or with ports"
+      // Only allow 4:1 when: (a) can't produce the needed resource at all,
+      // (b) 1-2 VP from winning with 1 resource missing, or (c) 7+ card robber risk
+      if (ratio >= 4) {
+        const canProduce = context ? context.productionRates[needed] > 0.05 : false;
+        const desperateForWin = vpAway <= 2 && planMissing <= 1;
+        const robberRisk = totalHand >= 7;
+        const hugeSurplus = player.resources[giving] >= 6;
+        if (canProduce && !desperateForWin && !robberRisk && !hugeSurplus) {
+          continue; // skip this 4:1 trade — wait for production or player trade
+        }
+      }
 
       const ratioBonus = (5 - ratio); // 2:1=3, 3:1=2, 4:1=1
       const surplusBonus = Math.min(player.resources[giving] - ratio, 3);

@@ -109,12 +109,26 @@ export function pickRobberHex(state: GameState, playerIndex: number, context?: B
 
     if (!affectsOpponent) continue;
 
+    // Self-damage: scale penalty by how much production we lose
+    // Theory: optimize for (opponent hurt - self hurt), not just opponent hurt
     if (affectsSelf) {
-      // Endgame: ignore self-damage
+      const selfDots = dots;
+      const selfVerts = vertices.filter((vk) => {
+        const b = state.board.vertices[vk];
+        return b && b.playerIndex === playerIndex;
+      });
+      const selfBuildingValue = selfVerts.reduce((sum, vk) => {
+        const b = state.board.vertices[vk]!;
+        return sum + (b.type === "city" ? 2 : 1);
+      }, 0);
+      const selfDamage = selfDots * selfBuildingValue;
+
       if (context?.isEndgame) {
-        score -= 3; // minimal penalty
+        score -= selfDamage * 0.3; // minimal in endgame — target the leader at all costs
       } else {
-        score -= 15 * robberSelfProtect;
+        // Proportional penalty: blocking a 5-pip hex with our city hurts more
+        // than blocking a 2-pip hex with our settlement
+        score -= selfDamage * 2.5 * robberSelfProtect;
       }
     }
 
@@ -214,6 +228,11 @@ export function pickStealTarget(state: GameState, playerIndex: number, context?:
         if (threat && threat === context.playerThreats[0]) {
           score += 20;
         }
+      }
+
+      // Theory: "Don't rob someone who's far behind — it's wasteful and creates enemies"
+      if (threat && threat.estimatedVP <= context.ownVP - 3) {
+        score -= 10; // they're far behind, not worth antagonizing
       }
     } else {
       score = target.victoryPoints * 3 + resourceCount;

@@ -76,17 +76,34 @@ export function pickDevCardToPlay(
     }
   }
 
-  // Play year of plenty to complete a build
+  // Play year of plenty — but only when it actually completes or nearly completes a build
+  // Theory: "Don't play dev cards just because you can — timing matters"
   if (cards.includes("yearOfPlenty")) {
     const needed = getMostNeededResources(state, playerIndex, 2, context);
     if (needed.length > 0) {
-      return {
-        card: "yearOfPlenty",
-        params: {
-          resource1: needed[0],
-          resource2: needed.length > 1 ? needed[1] : needed[0],
-        },
-      };
+      // Check if playing this card would complete an imminent build
+      const planMissing = context?.settlementPlan?.totalMissing ?? 99;
+      const cityMissing = context?.cityPlan?.totalMissing ?? 99;
+      const goalMissing = context?.buildGoal
+        ? Object.values(context.buildGoal.missingResources).reduce((s, n) => s + (n || 0), 0) : 99;
+      const bestMissing = Math.min(planMissing, cityMissing, goalMissing);
+
+      // Play if: completing a build (2 resources finishes it), nearly completing (1 left after),
+      // endgame (any progress matters), or robber risk (need to spend cards)
+      const totalHand = Object.values(player.resources).reduce((s, n) => s + n, 0);
+      const shouldPlay = bestMissing <= 2 || // completes or nearly completes a build
+        (context?.isEndgame) || // endgame: any progress matters
+        totalHand >= 6; // will be at 8+ after (robber risk)
+
+      if (shouldPlay) {
+        return {
+          card: "yearOfPlenty",
+          params: {
+            resource1: needed[0],
+            resource2: needed.length > 1 ? needed[1] : needed[0],
+          },
+        };
+      }
     }
   }
 
@@ -200,6 +217,12 @@ export function getMostNeededResources(
  * Smarter: scores each resource as opponentHoldings × needMultiplier.
  * Only plays if expected gain >= 2.
  */
+/**
+ * Pick the best resource for monopoly.
+ * Scores: (opponent holdings × need multiplier) + disruption bonus.
+ * Theory: "Monopoly timing is everything — play when opponents are likely holding
+ * that resource AND when it disrupts their builds."
+ */
 function pickMonopolyResource(state: GameState, playerIndex: number, context?: BotStrategicContext): Resource | null {
   let bestResource: Resource | null = null;
   let bestScore = 0;
@@ -217,14 +240,40 @@ function pickMonopolyResource(state: GameState, playerIndex: number, context?: B
     // Need multiplier: high if we need this resource for our plan/goal
     let needMultiplier = 1;
     if (context?.settlementPlan?.missingResources[res]) {
-      needMultiplier = 4; // Highest priority — completes our concrete plan
+      needMultiplier = 4;
     } else if (context?.cityPlan?.missingResources[res]) {
       needMultiplier = 3.5;
     } else if (context?.buildGoal?.missingResources[res]) {
       needMultiplier = 3;
     }
 
-    const score = totalOpponentCards * needMultiplier;
+    let score = totalOpponentCards * needMultiplier;
+
+    // === DISRUPTION BONUS ===
+    // Theory: monopoly is most powerful when it PREVENTS an opponent from building
+    // Check if any opponent is close to completing a build that uses this resource
+    if (context) {
+      for (const threat of context.playerThreats) {
+        const opp = state.players[threat.playerIndex];
+        const oppHas = opp.resources[res as Resource];
+        if (oppHas === 0) continue;
+
+        // Would stealing this resource prevent a city? (ore or grain)
+        if (res === "ore" && opp.resources.ore >= 2 && opp.settlements.length > 0 &&
+            opp.resources.grain >= 2) {
+          score += oppHas * 1.5; // disrupting a likely city build
+        }
+        if (res === "grain" && opp.resources.grain >= 1 && opp.settlements.length > 0 &&
+            opp.resources.ore >= 2) {
+          score += oppHas * 1.5;
+        }
+
+        // Disruption is more valuable against the leader
+        if (threat === context.playerThreats[0] && oppHas >= 2) {
+          score += oppHas * 0.8;
+        }
+      }
+    }
 
     if (score > bestScore) {
       bestScore = score;

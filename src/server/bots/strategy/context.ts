@@ -71,6 +71,8 @@ export interface SettlementPlan {
   estimatedTurns: number;
   /** Is an opponent also racing toward this vertex? */
   contested: boolean;
+  /** How many edges away the nearest opponent road is from this vertex (0 = adjacent, Infinity = far) */
+  opponentDistance: number;
 }
 
 /**
@@ -568,15 +570,14 @@ function computeSettlementPlans(
     }
   }
 
-  // Rank plans by value / cost, with contested spots boosted
-  // Road cost penalty is softer (0.25 per road) to avoid over-penalizing 1-road plans
-  // that reach much better vertices than adjacent 0-road spots
+  // Rank plans by value / cost, with contested spots boosted based on opponent proximity
   plans.sort((a, b) => {
     const aValue = a.vertexScore / (1 + a.totalMissing * 0.3 + a.roadPath.length * 0.25);
     const bValue = b.vertexScore / (1 + b.totalMissing * 0.3 + b.roadPath.length * 0.25);
-    // Contested spots get a urgency bonus
-    const aBonus = a.contested ? aValue * 0.3 : 0;
-    const bBonus = b.contested ? bValue * 0.3 : 0;
+    // Contested spots get urgency bonus scaled by how close the opponent is
+    // opponentDistance 1 (adjacent) = 50% bonus, 2 (1 away) = 30% bonus
+    const aBonus = a.contested ? aValue * (a.opponentDistance <= 1 ? 0.5 : 0.3) : 0;
+    const bBonus = b.contested ? bValue * (b.opponentDistance <= 1 ? 0.5 : 0.3) : 0;
     return (bValue + bBonus) - (aValue + aBonus);
   });
 
@@ -633,8 +634,8 @@ function buildSettlementPlan(
     }
   }
 
-  // Is this spot contested? (opponent road nearby)
-  const contested = isVertexContested(state, targetVertex, playerIndex);
+  // Is this spot contested? (opponent road nearby, and how close?)
+  const { contested, opponentDistance } = isVertexContestedWithDistance(state, targetVertex, playerIndex);
 
   return {
     targetVertex,
@@ -645,6 +646,7 @@ function buildSettlementPlan(
     totalMissing,
     estimatedTurns,
     contested,
+    opponentDistance,
   };
 }
 
@@ -667,22 +669,36 @@ function getBestConversionTurns(
   return bestTurns;
 }
 
-function isVertexContested(state: GameState, vertex: VertexKey, playerIndex: number): boolean {
+/**
+ * Check how close opponent roads are to a vertex.
+ * Returns { contested, opponentDistance }:
+ * - opponentDistance 1 = opponent road directly adjacent to vertex
+ * - opponentDistance 2 = opponent road 1 vertex away
+ * - opponentDistance Infinity = no nearby opponent roads
+ */
+function isVertexContestedWithDistance(
+  state: GameState, vertex: VertexKey, playerIndex: number
+): { contested: boolean; opponentDistance: number } {
+  // Check edges directly adjacent to the vertex
   const adjEdges = edgesAtVertex(vertex);
   for (const ae of adjEdges) {
     const road = state.board.edges[ae];
-    if (road && road.playerIndex !== playerIndex) return true;
+    if (road && road.playerIndex !== playerIndex) {
+      return { contested: true, opponentDistance: 1 };
+    }
   }
-  // Also check if opponent is 1 vertex away with roads
+  // Check if opponent is 1 vertex away with roads
   const adjVerts = adjacentVertices(vertex);
   for (const av of adjVerts) {
     const avEdges = edgesAtVertex(av);
     for (const ae of avEdges) {
       const road = state.board.edges[ae];
-      if (road && road.playerIndex !== playerIndex) return true;
+      if (road && road.playerIndex !== playerIndex) {
+        return { contested: true, opponentDistance: 2 };
+      }
     }
   }
-  return false;
+  return { contested: false, opponentDistance: Infinity };
 }
 
 // ============================================================

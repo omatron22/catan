@@ -109,17 +109,20 @@ export function scoreVertex(
   // Base score from probability EV
   let score = production.totalEV * 100;
 
-  // Diversity bonus (quadratic)
-  score += production.diversity * production.diversity * 8;
+  // Diversity bonus (linear — toned down so it doesn't outweigh raw EV)
+  // Theory: covering many resources matters, but a 3-resource high-EV spot
+  // beats a 5-resource low-EV spot. Old quadratic 8x was too aggressive.
+  score += production.diversity * 5;
 
   // === Resource value weighting ===
-  // Research: "wheat is the most critical resource" and "ore is most valuable"
-  // Cities (3 ore + 2 grain) are the most efficient VP source in Catan.
-  // Brick is scarcer than lumber (3 hexes vs 4) but spent equally → worth slightly more.
-  score += production.perResource.ore * 15;
-  score += production.perResource.grain * 12;
+  // Theory: "Wheat is king" — grain is used in settlements (1), cities (2), AND dev cards (1).
+  // Ore is critical for cities (3) and dev cards (1) but less versatile early.
+  // Brick is scarcer than lumber (3 hexes vs 4) but both are essential for roads/settlements.
+  score += production.perResource.grain * 16; // wheat is king
+  score += production.perResource.ore * 14;
   score += production.perResource.brick * 6;
-  score += production.perResource.lumber * 4;
+  score += production.perResource.lumber * 5;
+  score += production.perResource.wool * 3; // wool is least valuable but still needed
 
   // === Resource pair balance ===
   // Having brick without lumber (or vice versa) is wasteful — you need both for roads/settlements.

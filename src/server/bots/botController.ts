@@ -247,26 +247,75 @@ interface ScoredAction {
 }
 
 /**
- * Score all possible build actions based on how much they advance our plan
- * or provide direct VP value.
+ * Score all possible build actions based on game phase, opponent foresight,
+ * race urgency, and Catan theory principles.
+ *
+ * Core philosophy:
+ * - Cities are VP-efficient but settlements grab territory. Priority depends on CONTEXT.
+ * - If opponents race toward a good spot → grab it before upgrading cities.
+ * - If board is open / no pressure → cities first (they double production).
+ * - Roads ONLY serve a purpose (reaching a settlement, finishing longest road).
+ * - Dev cards are consistently strong mid/late game (winners buy 3-4 per game).
+ * - Spend resources to avoid robber risk; don't hoard.
  */
 function evaluateActions(state: GameState, botIndex: number, context: BotStrategicContext): ScoredAction[] {
   const player = state.players[botIndex];
   const actions: ScoredAction[] = [];
   const plan = context.settlementPlan;
   const totalHand = Object.values(player.resources).reduce((s, n) => s + n, 0);
+  const totalBuildings = player.settlements.length + player.cities.length;
 
   // 7-card management: if we have 7+ cards, we're at risk of losing half on a 7.
   // Boost all affordable actions to encourage spending rather than hoarding.
   const robberRiskBonus = totalHand >= 7 ? Math.min(50, (totalHand - 6) * 12) : 0;
 
-  // --- SETTLEMENT (1 VP + new production — highest value per action) ---
+  // === GAME PHASE ===
+  // Early: building foundations (≤3 buildings), Mid: engine running, Late: racing to win
+  const phase: "early" | "mid" | "late" =
+    totalBuildings <= 3 ? "early" :
+    context.ownVP >= context.vpToWin - 3 ? "late" : "mid";
+
+  // === RACE / FORESIGHT DETECTION ===
+  // Analyze opponents to determine if we're in a race for settlement spots.
+  // This drives the city-vs-settlement priority dynamically.
+  const raceUrgency = computeRaceUrgency(plan, context, state, botIndex);
+
+  // === OPPONENT FORESIGHT ===
+  // What are opponents likely to do? This affects our priorities.
+  const leaderEstVP = context.playerThreats.length > 0 ? context.playerThreats[0].estimatedVP : 0;
+  const leaderMomentum = context.playerThreats.length > 0 ? context.playerThreats[0].momentum : 0;
+  // Are we behind the leader? If so, we need to be more aggressive about expansion.
+  const vpBehindLeader = leaderEstVP - context.ownVP;
+  const behindPressure = vpBehindLeader >= 2 ? Math.min(30, vpBehindLeader * 8) : 0;
+
+  // --- SETTLEMENT (1 VP + new production + territory control) ---
   if (canAfford(player, BUILDING_COSTS.settlement)) {
     // Check if the plan's target vertex is directly reachable (0 roads needed)
     if (plan && plan.roadPath.length === 0) {
       const prod = computeVertexProduction(state, plan.targetVertex);
-      let score = 200 + prod.totalEV * 100;
-      if (plan.contested) score += 50;
+      let score = 170 + prod.totalEV * 80;
+
+      // Quality gate: don't settle on terrible vertices (3/11/desert-adjacent)
+      if (prod.totalEV < 0.25) score -= 120; // heavily penalize garbage spots
+      else if (prod.totalEV < 0.4) score -= 40; // mildly penalize mediocre spots
+
+      // RACE URGENCY: if opponents are heading toward this spot, grab it NOW
+      // "I have to make sure I get to my spots before I settle down and make cities"
+      if (plan.contested) score += 35 + raceUrgency * 70;
+
+      // Early game: settlements are crucial for production diversity
+      if (phase === "early") score += 25;
+
+      // Late game: any VP counts
+      if (phase === "late") score += 40;
+
+      // Behind the leader: need to expand faster
+      score += behindPressure;
+
+      // Does this settlement fill a production gap? (covers missing resources)
+      const gapBonus = computeProductionGapBonus(state, plan.targetVertex, context);
+      score += gapBonus;
+
       score += robberRiskBonus;
       actions.push({
         name: "settlement-plan",
@@ -274,11 +323,19 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
         execute: () => ({ type: "build-settlement", playerIndex: botIndex, vertex: plan.targetVertex }),
       });
     }
+
+    // Opportunistic settlement (pickBuildVertex found something not in our plan)
     const vertex = pickBuildVertex(state, botIndex);
     if (vertex && (!plan || vertex !== plan.targetVertex)) {
       const prod = computeVertexProduction(state, vertex);
-      let score = 180 + prod.totalEV * 90;
-      if (context.isEndgame) score += 40;
+      let score = 150 + prod.totalEV * 70;
+
+      // Quality gate
+      if (prod.totalEV < 0.25) score -= 120;
+      else if (prod.totalEV < 0.4) score -= 40;
+
+      if (phase === "late") score += 40;
+      score += behindPressure * 0.5;
       score += robberRiskBonus;
       actions.push({
         name: "settlement-opportunistic",
@@ -288,24 +345,43 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
     }
   }
 
-  // --- CITY (1 VP + doubled production — always worth it when affordable) ---
-  // Key insight: cities are "free VP" when you have the resources. A city ALWAYS
-  // beats a road because it's immediate VP. Only a reachable settlement competes.
-  // Theory: "Secure 3 settlements first, then focus on cities" — but don't skip
-  // a city if we have the resources and no settlement is reachable.
+  // --- CITY (1 VP + doubled production) ---
+  // Cities are the most VP-efficient action WHEN there's no race pressure.
+  // But if opponents threaten our settlement targets, territory comes first.
   if (canAfford(player, BUILDING_COSTS.city) && context.cityPlan) {
     const cp = context.cityPlan;
-    let score = 190 + cp.score * 90;
+    let score = 220 + cp.score * 80;
+
     if (context.strategy === "cities") score += 20;
-    if (context.isEndgame) score += 50;
-    // If we don't have a settlement plan (or it needs roads), city is even better
+
+    // Late game: guaranteed VP, very strong
+    if (phase === "late") score += 50;
+
+    // If no settlement plan or it needs roads, city is the clear best action
     if (!plan || plan.roadPath.length > 0) score += 20;
-    // Early game: prefer getting to 3 settlements before cities (diversify production)
-    // But only if a settlement is immediately reachable (0 roads needed, affordable)
-    const totalBuildings = player.settlements.length + player.cities.length;
-    if (totalBuildings < 3 && plan && plan.roadPath.length === 0 && canAfford(player, BUILDING_COSTS.settlement)) {
-      score -= 25; // prefer the reachable settlement, but don't hard-block the city
+
+    // === RACE CONTEXT ===
+    // If we're in a race for a settlement spot AND can afford to settle NOW,
+    // the city should yield priority. Territory first, upgrade later.
+    if (raceUrgency > 0.4 && plan && plan.roadPath.length === 0 && canAfford(player, BUILDING_COSTS.settlement)) {
+      // Scale the penalty by how urgent the race is
+      score -= 30 + raceUrgency * 50;
     }
+
+    // Early game: prefer getting to 3 buildings before cities (diversify production)
+    // But only if a quality settlement is immediately reachable
+    if (phase === "early" && plan && plan.roadPath.length === 0 && canAfford(player, BUILDING_COSTS.settlement)) {
+      const planProd = computeVertexProduction(state, plan.targetVertex);
+      if (planProd.totalEV >= 0.4) { // only defer city for a good settlement
+        score -= 30;
+      }
+    }
+
+    // Behind the leader with few buildings: expand don't upgrade
+    if (vpBehindLeader >= 3 && totalBuildings <= 3) {
+      score -= 20;
+    }
+
     score += robberRiskBonus;
     actions.push({
       name: "city",
@@ -314,28 +390,45 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
     });
   }
 
-  // --- ROAD (ONLY if it's on the plan path or for longest road) ---
+  // --- ROAD (ONLY if purposeful: plan path or longest road finish/defense) ---
   if (canAfford(player, BUILDING_COSTS.road) && player.roads.length < 15) {
+    // Plan roads: build toward a settlement destination
     if (plan && plan.roadPath.length > 0) {
       const nextRoad = plan.roadPath[0];
       if (state.board.edges[nextRoad] === null) {
-        let score = 80;
-        score += plan.vertexScore * 0.3;
-        if (plan.contested) score += 40;
-        if (plan.roadPath.length === 1) score += 30; // last road before settle
+        let score = 55; // base lower than cities/settlements — roads aren't VP
 
-        // If we can't afford the full plan, roads are still progress
-        // but not if we'd be better off saving
+        // Score based on destination quality
+        const destProd = computeVertexProduction(state, plan.targetVertex);
+        score += plan.vertexScore * 0.25;
+
+        // Quality gate: if destination is bad, don't invest roads toward it
+        if (destProd.totalEV < 0.3) score -= 40;
+
+        // Contested destination: build roads faster to race there
+        if (plan.contested) score += 25 + raceUrgency * 45;
+
+        // Last road before we can settle: very valuable (unlocks the VP)
+        if (plan.roadPath.length === 1) score += 40;
+        // Second-to-last road is also meaningful
+        else if (plan.roadPath.length === 2) score += 15;
+
+        // Long plan with many missing resources: consider saving instead
         if (plan.roadPath.length > 2 && plan.totalMissing > 4) {
-          score -= 15; // long plan with many missing resources — save up
+          score -= 20;
         }
 
-        // 7-card risk: better to spend on a plan road than lose cards
-        score += robberRiskBonus * 0.5; // half bonus (roads aren't VP)
+        // 7-card risk: spend on plan road rather than lose cards
+        score += robberRiskBonus * 0.4;
 
-        // Penalize if we already have many roads — settlements/cities are better
-        if (player.roads.length >= 10) score -= 15;
-        if (player.roads.length >= 12) score -= 20;
+        // Diminishing returns on many roads
+        if (player.roads.length >= 10) score -= 20;
+        if (player.roads.length >= 12) score -= 30;
+
+        // Early game with no urgency: save for settlements/cities instead
+        if (phase === "early" && !plan.contested && plan.roadPath.length > 1) {
+          score -= 15;
+        }
 
         actions.push({
           name: "road-plan",
@@ -345,13 +438,14 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
       }
     }
 
-    // Longest road pursuit — only when close or defending
-    // Tighten conditions: must be within 2 roads (not 3), and need either
-    // a settlement plan or be very close to claiming/defending the award
+    // Longest road pursuit — ONLY as finishing move or active defense
+    // Theory: "Don't go out of your way for longest road early/mid game.
+    // Building settlements and cities creates a more sustainable road network."
     const shouldPursueLongestRoad =
       context.distanceToLongestRoad === 0 ? context.longestRoadThreatened : // defend only if threatened
-      context.distanceToLongestRoad <= 1 ? true : // 1 road away = +2 VP, always worth it
-      context.distanceToLongestRoad <= 2 && player.longestRoadLength >= 4 && context.vpPaths.longestRoad > 0; // 2 away only if it's part of VP plan
+      context.distanceToLongestRoad <= 1 ? true : // 1 road = +2 VP, always worth it
+      // 2 away: only in late game as a finishing move
+      context.distanceToLongestRoad <= 2 && phase === "late" && context.vpPaths.longestRoad > 0;
 
     if (shouldPursueLongestRoad && player.roads.length < 13) {
       const edge = pickBuildRoad(state, botIndex, context);
@@ -360,18 +454,18 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
         if (!isOnPlan) {
           let score = 0;
           if (context.distanceToLongestRoad === 0) {
-            score = context.longestRoadThreatened ? 140 : 0; // only defend if threatened
+            score = context.longestRoadThreatened ? 150 : 0; // only defend if threatened
           } else if (context.distanceToLongestRoad <= 1) {
-            score = 130; // +2 VP is huge
+            // +2 VP for 1 road is efficient, but even more so as a finisher
+            score = phase === "late" ? 170 : 110;
           } else if (context.distanceToLongestRoad <= 2) {
-            score = 75;
+            score = 70; // only reachable in late game (gated above)
           }
-          if (context.longestRoadThreatened) score += 40;
-          if (context.vpPaths.longestRoad > 0) score += 20;
-          score += robberRiskBonus * 0.5;
 
-          // Penalize if we already have many roads (diminishing returns)
-          if (player.roads.length >= 10) score -= 20;
+          if (context.longestRoadThreatened) score += 30;
+          score += robberRiskBonus * 0.3;
+
+          if (player.roads.length >= 10) score -= 25;
 
           if (score > 0) {
             actions.push({
@@ -386,14 +480,15 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
   }
 
   // --- DEV CARD (speculative VP + army progress) ---
+  // Theory: winners buy 3-4 dev cards per game. Knights provide robber control,
+  // VP cards are hidden finishers, and the army bonus is +2 VP.
   if (canAfford(player, BUILDING_COSTS.developmentCard) && state.developmentCardDeck.length > 0) {
-    let score = 55;
+    let score = 65; // boosted base (theory: consistently valuable)
 
     // === "City before dev cards" rule ===
-    // Research: "Build at least one city before buying dev cards" for the production boost.
-    // Cities double your income, making future dev cards easier to buy.
+    // Cities double your income, making future purchases easier.
     if (player.cities.length === 0 && player.settlements.length > 0) {
-      score -= 30; // strongly prefer getting first city before dev card spree
+      score -= 25;
     }
 
     // Army pursuit: dev deck is ~56% knights. If 1 knight from army = +2 VP,
@@ -402,10 +497,8 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
     const totalKnightsNeeded = context.distanceToLargestArmy;
 
     if (totalKnightsNeeded <= 1 && knightsInHand === 0) {
-      // 1 knight away but don't have one — buying is worth ~1.1 VP
       score += 80;
     } else if (totalKnightsNeeded <= 1 && knightsInHand >= 1) {
-      // Already have a knight to play — buying another is less urgent
       score += 20;
     } else if (totalKnightsNeeded <= 2) {
       score += 50;
@@ -416,20 +509,32 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
     if (context.largestArmyThreatened) score += 35;
     if (context.strategy === "development") score += 20;
 
-    // === VP path integration ===
-    // If our best path to victory involves largest army, boost dev card value
+    // VP path integration: army is part of our win plan
     if (context.vpPaths.largestArmy > 0 && totalKnightsNeeded <= 3) {
-      score += 25; // army is part of our win plan
+      score += 25;
     }
 
-    // Endgame: VP cards in deck
-    if (context.isEndgame) {
+    // Late game: VP cards in deck can be game-ending
+    if (phase === "late") {
       score += Math.min(35, state.developmentCardDeck.length * 3);
     }
 
-    // Don't buy if we're 1-2 resources from completing the plan
+    // Mid-game with good production: dev cards provide army control + hidden VP
+    if (phase === "mid" && context.totalProduction > 1.5) {
+      score += 10;
+    }
+
+    // Don't buy if we're about to settle (1-2 resources from completing the plan)
     if (plan && plan.totalMissing <= 2 && plan.roadPath.length === 0) {
-      score -= 50; // strongly prefer the guaranteed settlement
+      score -= 50;
+    }
+
+    // === Opponent foresight: if an opponent is close to army, we should contest ===
+    const opponentArmyThreat = context.playerThreats.some(
+      t => t.knightsPlayed >= 2 && t.devCardCount >= 1
+    );
+    if (opponentArmyThreat && context.ownKnightsPlayed >= 1) {
+      score += 15; // contest the army race
     }
 
     // 7-card risk: dev card costs 3 resources, helps reduce hand
@@ -455,6 +560,112 @@ function evaluateActions(state: GameState, botIndex: number, context: BotStrateg
   }
 
   return actions;
+}
+
+/**
+ * Determine how urgently we need to race for settlement spots vs. playing it safe.
+ * Returns 0 (no race) to 1 (must grab spot immediately).
+ *
+ * Considers:
+ * - Whether our planned settlement vertex is contested (opponent roads nearby)
+ * - Opponent expansion capability (brick+lumber production = they expand fast)
+ * - Opponent momentum (high momentum = they'll reach spots sooner)
+ * - Board crowding (spatial urgency)
+ * - How many good spots remain on the board
+ */
+function computeRaceUrgency(
+  plan: BotStrategicContext["settlementPlan"],
+  context: BotStrategicContext,
+  state: GameState,
+  botIndex: number,
+): number {
+  if (!plan) return context.spatialUrgency * 0.4; // general board pressure
+
+  let urgency = 0;
+
+  // === OPPONENT PROXIMITY ===
+  // How close is the nearest opponent to our target? This is the #1 race signal.
+  if (plan.contested) {
+    if (plan.opponentDistance <= 1) {
+      // Opponent road is RIGHT NEXT to our target — critical urgency
+      urgency += 0.6;
+    } else if (plan.opponentDistance <= 2) {
+      // Opponent is 1 vertex away — high urgency
+      urgency += 0.4;
+    } else {
+      urgency += 0.2; // contested but not immediately threatening
+    }
+  }
+
+  // === OPPONENT FORESIGHT ===
+  // Analyze each opponent's capability and intent
+  for (const threat of context.playerThreats) {
+    // Opponents producing brick+lumber can build roads toward our spots
+    const expansionRate = Math.min(threat.productionRates.brick, threat.productionRates.lumber);
+    if (expansionRate > 0.15) urgency += 0.08;
+
+    // High-momentum opponents build faster — more likely to snipe spots
+    if (threat.momentum > 2.5) urgency += 0.08;
+
+    // Opponent close to winning will grab any good spot to close out
+    if (threat.estimatedVP >= context.vpToWin - 2) urgency += 0.1;
+
+    // Opponent has all 4 settlement resources = can settle any time
+    const canSettle = threat.productionRates.brick > 0 && threat.productionRates.lumber > 0 &&
+      threat.productionRates.grain > 0 && threat.productionRates.wool > 0;
+    if (canSettle && threat.upgradeableSettlements < 3) urgency += 0.05; // they want more settlements
+  }
+
+  // === BOARD PRESSURE ===
+  // Fewer open spots = every spot is more valuable = more competition
+  urgency += context.spatialUrgency * 0.25;
+
+  // === OUR READINESS ===
+  // If we can settle NOW (0 roads, affordable), the race is winnable — boost urgency
+  // If we need 3 roads first, the "race" is less about urgency and more about pivoting
+  if (plan.roadPath.length === 0) {
+    urgency += 0.05; // we can act immediately
+  } else if (plan.roadPath.length >= 3) {
+    urgency -= 0.15; // long way to go — maybe pick a different spot
+  }
+
+  // If we have good alternatives, urgency drops (we can pivot if we lose this race)
+  if (context.alternativePlans.length >= 2) urgency -= 0.08;
+
+  return Math.max(0, Math.min(1, urgency));
+}
+
+/**
+ * Bonus for settling a vertex that fills a gap in our production.
+ * In Catan, covering many different numbers/resources is better than
+ * stacking on few. A settlement that gives us ore when we have none
+ * is worth much more than another brick source.
+ */
+function computeProductionGapBonus(
+  state: GameState,
+  vertex: string,
+  context: BotStrategicContext,
+): number {
+  const prod = computeVertexProduction(state, vertex);
+  let bonus = 0;
+
+  // Bonus for each resource we don't currently produce
+  for (const res of ALL_RESOURCES) {
+    if (context.productionRates[res] < 0.05 && prod.perResource[res] > 0) {
+      // Filling a missing resource is very valuable
+      bonus += 15;
+      // Extra bonus for strategically important resources
+      if (res === "ore" || res === "grain") bonus += 8; // city resources
+    }
+  }
+
+  // Bonus for number diversity (covering numbers we don't have)
+  // This is implicit in the vertex scoring but worth a small extra nudge
+  if (context.missingResources.length >= 2 && prod.totalEV > 0.3) {
+    bonus += 5;
+  }
+
+  return bonus;
 }
 
 function evaluateNukeDesirability(state: GameState, botIndex: number, context: BotStrategicContext): number {
@@ -1093,9 +1304,52 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
     if (fromVP >= botVP + 2) score -= 2;
     else if (fromVP >= botVP + 1) score -= 0.5;
 
+    // === OPPONENT BUILD COMPLETION CHECK ===
+    // Theory: "Don't give opponents resources that complete a build for them"
+    // If this trade gives them the last 1-2 resources for a city/settlement, hard penalty.
+    if (fromThreat) {
+      const opponent = state.players[trade.fromPlayer];
+      // Simulate what opponent would have after the trade
+      const simResources: Record<Resource, number> = { ...opponent.resources } as Record<Resource, number>;
+      for (const [res, amt] of Object.entries(trade.offering)) {
+        simResources[res as Resource] -= (amt || 0); // they give these away
+      }
+      for (const [res, amt] of Object.entries(trade.requesting)) {
+        simResources[res as Resource] += (amt || 0); // they receive these
+      }
+
+      // Check if the trade completes a city for them
+      if (opponent.settlements.length > 0) {
+        const canCityBefore = opponent.resources.ore >= 3 && opponent.resources.grain >= 2;
+        const canCityAfter = simResources.ore >= 3 && simResources.grain >= 2;
+        if (!canCityBefore && canCityAfter) {
+          score -= 4; // this trade hands them a city (+1 VP)
+        }
+      }
+      // Check if the trade completes a settlement
+      const canSettleBefore = opponent.resources.brick >= 1 && opponent.resources.lumber >= 1 &&
+        opponent.resources.grain >= 1 && opponent.resources.wool >= 1;
+      const canSettleAfter = simResources.brick >= 1 && simResources.lumber >= 1 &&
+        simResources.grain >= 1 && simResources.wool >= 1;
+      if (!canSettleBefore && canSettleAfter) {
+        score -= 3; // hands them a settlement
+      }
+      // Check if trade completes a dev card purchase
+      const canDevBefore = opponent.resources.ore >= 1 && opponent.resources.grain >= 1 && opponent.resources.wool >= 1;
+      const canDevAfter = simResources.ore >= 1 && simResources.grain >= 1 && simResources.wool >= 1;
+      if (!canDevBefore && canDevAfter && fromVP >= botVP) {
+        score -= 2; // hands them a dev card (potential hidden VP)
+      }
+    }
+
     // Momentum penalty: don't help players accelerating faster than us
+    // Strengthened: high-momentum leaders get harder rejection
     if (fromThreat && fromThreat.momentum > 1.5) {
-      score -= fromThreat.momentum * 0.3;
+      score -= fromThreat.momentum * 0.5;
+      // Hard gate: don't trade with high-momentum leaders within 3 VP of winning
+      if (fromThreat.momentum > 2.5 && fromVP >= context.vpToWin - 3) {
+        score -= 3;
+      }
     }
 
     // === Trade timing awareness ===
@@ -1103,9 +1357,9 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
     // When it's the opponent's turn, they benefit more from the trade. Be pickier.
     if (state.currentPlayerIndex === trade.fromPlayer) {
       // It's their turn — they'll use these resources right away
-      score -= 0.5;
+      score -= 0.8;
       // Extra cautious in endgame: opponent might win with these resources
-      if (context.isEndgame) score -= 1.5;
+      if (context.isEndgame) score -= 2;
     }
   }
 

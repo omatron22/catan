@@ -98,6 +98,16 @@ export const PLAYER_COLOR_HEX: Record<string, string> = {
   teal: "#1abc9c",
   yellow: "#f1c40f",
   brown: "#8B4513",
+  navy: "#2c3e7a",
+  lime: "#7ed321",
+  coral: "#ff6b6b",
+  crimson: "#c0392b",
+  sky: "#74b9ff",
+  lavender: "#a29bfe",
+  maroon: "#6c1d45",
+  gold: "#d4a017",
+  cyan: "#00cec9",
+  charcoal: "#4a4a4a",
 };
 
 /** Terrain colors for rendering — matched to colonist.io palette */

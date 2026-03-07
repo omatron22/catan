@@ -15,7 +15,7 @@ interface Props {
   playerColors?: Record<number, string>;
 }
 
-const PLAYER_COLORS_ORDERED = ["red", "blue", "white", "orange", "green", "purple", "pink", "teal", "yellow", "brown"] as const;
+const PLAYER_COLORS_ORDERED = ["red", "blue", "white", "orange", "green", "purple", "pink", "teal", "yellow", "brown", "navy", "lime", "coral", "crimson", "sky", "lavender", "maroon", "gold", "cyan", "charcoal"] as const;
 
 export default function Edge({ edgeKey: ek, road, size, onClick, highlighted, layer, playerColors }: Props) {
   const [v1, v2] = edgeEndpoints(ek);

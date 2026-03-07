@@ -82,10 +82,21 @@ export type PlayerColor =
   | "pink"
   | "teal"
   | "yellow"
-  | "brown";
+  | "brown"
+  | "navy"
+  | "lime"
+  | "coral"
+  | "crimson"
+  | "sky"
+  | "lavender"
+  | "maroon"
+  | "gold"
+  | "cyan"
+  | "charcoal";
 
 export const PLAYER_COLORS: PlayerColor[] = [
   "red", "blue", "white", "orange", "green", "purple", "pink", "teal", "yellow", "brown",
+  "navy", "lime", "coral", "crimson", "sky", "lavender", "maroon", "gold", "cyan", "charcoal",
 ];
 
 export type GamePhase =

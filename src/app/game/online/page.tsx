@@ -655,10 +655,10 @@ export default function OnlineGamePage() {
                       </div>
                     ) : <span className="font-pixel text-[10px] text-amber-600">{lobbyConfig?.vpToWin ?? 10}</span>}
                   </div>
-                  <div className="text-center">
+                  <div className="text-center col-span-2 flex flex-col items-center">
                     <span className="font-pixel text-[8px] text-gray-600 block mb-1">EXPANSION BOARD</span>
                     {isHost ? (
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex">
                         <button className={`px-3 py-1.5 font-pixel text-[8px] border-2 border-black border-r-0 ${!isExpansion ? "bg-gray-400 text-white" : "bg-[#e8d8b8] text-gray-500"}`} onClick={() => handleUpdateConfig({ expansionBoard: false })}>OFF</button>
                         <button className={`px-3 py-1.5 font-pixel text-[8px] border-2 border-black ${isExpansion ? "bg-amber-400 text-gray-900" : "bg-[#e8d8b8] text-gray-500"}`} onClick={() => handleUpdateConfig({ expansionBoard: true })}>ON</button>
                       </div>

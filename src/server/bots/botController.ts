@@ -19,7 +19,6 @@ import {
 /**
  * Given the current game state and a bot player index,
  * decide what action the bot should take.
- * Returns null if it's not this bot's turn or no action needed.
  */
 export function decideBotAction(state: GameState, botIndex: number): GameAction | null {
   // Handle discard phase (any bot might need to discard, not just current player)
@@ -30,7 +29,7 @@ export function decideBotAction(state: GameState, botIndex: number): GameAction 
   // All other actions require it to be our turn
   if (state.currentPlayerIndex !== botIndex) return null;
 
-  // Setup phases — compute context for turn-order awareness
+  // Setup phases
   if (state.phase === "setup-forward" || state.phase === "setup-reverse") {
     let context: BotStrategicContext | undefined;
     try {
@@ -41,10 +40,8 @@ export function decideBotAction(state: GameState, botIndex: number): GameAction 
     return makeSetupAction(state, botIndex, context);
   }
 
-  // Main game
   if (state.phase !== "main") return null;
 
-  // Compute strategic context for main-phase decisions
   const context = computeStrategicContext(state, botIndex);
 
   switch (state.turnPhase) {
@@ -55,7 +52,7 @@ export function decideBotAction(state: GameState, botIndex: number): GameAction 
     case "robber-steal":
       return makeStealAction(state, botIndex, context);
     case "trade-or-build":
-      return makeMainPhaseAction(state, botIndex, context);
+      return makePlanDrivenAction(state, botIndex, context);
     case "road-building-1":
     case "road-building-2":
       return makeRoadBuildingAction(state, botIndex, context);
@@ -63,11 +60,15 @@ export function decideBotAction(state: GameState, botIndex: number): GameAction 
       return makeSheepNukePickAction(state, botIndex, context);
     case "monopoly":
     case "year-of-plenty":
-      return null; // These are handled by dev card play
+      return null;
     default:
       return null;
   }
 }
+
+// ============================================================
+// Setup
+// ============================================================
 
 function makeSetupAction(state: GameState, botIndex: number, context?: BotStrategicContext): GameAction | null {
   const isSettlementTurn = state.setupPlacementsMade % 2 === 0;
@@ -86,10 +87,13 @@ function makeSetupAction(state: GameState, botIndex: number, context?: BotStrate
   }
 }
 
+// ============================================================
+// Pre-roll dev card decision
+// ============================================================
+
 function makeRollOrPlayDevCard(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
   const player = state.players[botIndex];
   if (!player.hasPlayedDevCardThisTurn && player.developmentCards.includes("knight")) {
-    // Army-aware knight play probability before rolling, scaled by personality
     let playProb = 0.3 * context.weights.knightEagerness;
     if (context.distanceToLargestArmy <= 1) playProb = Math.min(1, 0.8 * context.weights.knightEagerness);
     else if (context.distanceToLargestArmy <= 2) playProb = Math.min(1, 0.6 * context.weights.knightEagerness);
@@ -101,6 +105,10 @@ function makeRollOrPlayDevCard(state: GameState, botIndex: number, context: BotS
 
   return { type: "roll-dice", playerIndex: botIndex };
 }
+
+// ============================================================
+// Robber
+// ============================================================
 
 function makeRobberPlaceAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
   const hex = pickRobberHex(state, botIndex, context);
@@ -114,28 +122,40 @@ function makeStealAction(state: GameState, botIndex: number, context: BotStrateg
 }
 
 function makeDiscardAction(state: GameState, botIndex: number): GameAction {
-  // Compute context for strategy-aware discard
   let context: BotStrategicContext | undefined;
   try {
     context = computeStrategicContext(state, botIndex);
   } catch {
-    // Fallback to basic discard if context computation fails
+    // Fallback to basic discard
   }
   const resources = pickDiscardResources(state, botIndex, context);
   return { type: "discard-resources", playerIndex: botIndex, resources };
 }
 
-interface BuildOption {
-  name: string;
-  score: number;
-  execute: () => GameAction | null;
-}
+// ============================================================
+// CORE: Plan-driven main phase action
+// ============================================================
 
-function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
+/**
+ * The heart of the bot: decides what to do during trade-or-build phase.
+ *
+ * Architecture:
+ * 1. Check for free nuke
+ * 2. Consider playing a dev card (if it directly helps the plan)
+ * 3. Check if we can execute the NEXT STEP of our plan
+ *    - If plan says "build road to vertex X" and we can afford → build road
+ *    - If plan says "build settlement at vertex X" and we can afford → build settlement
+ * 4. Check opportunistic builds (city upgrade, dev card purchase)
+ * 5. If we can't execute our plan step, try trading (player trade → bank trade)
+ * 6. If nothing helps, END TURN and save resources
+ *
+ * Key principle: NEVER build something that doesn't advance a plan or provide clear VP value.
+ * Roads are ONLY built on the planned path. Resources are SAVED for the plan.
+ */
+function makePlanDrivenAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
   const player = state.players[botIndex];
-  const w = context.weights;
 
-  // 0. Always take a free nuke — no cost, always worth it
+  // 0. Always take a free nuke
   if (state.freeNukeAvailable && state.config?.sheepNuke) {
     return { type: "sheep-nuke", playerIndex: botIndex };
   }
@@ -166,222 +186,235 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     }
   }
 
-  // 2. Opportunistic build scoring — each action scored by immediate value
-  const options: BuildOption[] = [];
+  // 2. Evaluate all possible actions and pick the best one
+  //    This is plan-aware: actions that advance the plan score higher.
 
-  // City — pick the highest-production settlement to upgrade
-  if (canAfford(player, BUILDING_COSTS.city) && player.settlements.length > 0) {
-    let bestCityVertex = player.settlements[0];
-    let bestCityEV = 0;
-    for (const v of player.settlements) {
-      const prod = computeVertexProduction(state, v);
-      if (prod.totalEV > bestCityEV) {
-        bestCityEV = prod.totalEV;
-        bestCityVertex = v;
-      }
-    }
-    let score = bestCityEV * 90 * w.cityScore;
-    if (context.isEndgame) score += 30;
-    options.push({
-      name: "city",
-      score,
-      execute: () => ({ type: "build-city", playerIndex: botIndex, vertex: bestCityVertex }),
-    });
+  const actions = evaluateActions(state, botIndex, context);
+
+  // Sort by score descending
+  actions.sort((a, b) => b.score - a.score);
+
+  // Try the highest-scoring action
+  for (const action of actions) {
+    if (action.score <= 0) break; // don't do negative-value actions
+    const result = action.execute();
+    if (result) return result;
   }
 
-  // Settlement — highest strategic priority (1 VP + new production)
-  let hasReachableVertex = false;
+  // 3. If no build action scored positive, try trading toward the plan
+  const tradeAction = tryTrading(state, botIndex, context);
+  if (tradeAction) return tradeAction;
+
+  // 4. Nothing useful to do — END TURN and save resources
+  return { type: "end-turn", playerIndex: botIndex };
+}
+
+interface ScoredAction {
+  name: string;
+  score: number;
+  execute: () => GameAction | null;
+}
+
+/**
+ * Score all possible build actions based on how much they advance our plan
+ * or provide direct VP value.
+ */
+function evaluateActions(state: GameState, botIndex: number, context: BotStrategicContext): ScoredAction[] {
+  const player = state.players[botIndex];
+  const actions: ScoredAction[] = [];
+  const plan = context.settlementPlan;
+
+  // --- SETTLEMENT (always highest priority — 1 VP + production) ---
   if (canAfford(player, BUILDING_COSTS.settlement)) {
+    // Check if the plan's target vertex is directly reachable (0 roads needed)
+    if (plan && plan.roadPath.length === 0) {
+      const prod = computeVertexProduction(state, plan.targetVertex);
+      let score = 200 + prod.totalEV * 100; // Very high — this IS the plan
+      if (plan.contested) score += 50; // Rush!
+      actions.push({
+        name: "settlement-plan",
+        score,
+        execute: () => ({ type: "build-settlement", playerIndex: botIndex, vertex: plan.targetVertex }),
+      });
+    }
+    // Also check any reachable vertex (in case plan vertex isn't the best available right now)
     const vertex = pickBuildVertex(state, botIndex);
-    if (vertex) {
-      hasReachableVertex = true;
+    if (vertex && (!plan || vertex !== plan.targetVertex)) {
       const prod = computeVertexProduction(state, vertex);
-      let score = prod.totalEV * 120 * w.settlementScore;
-      score += 25; // base VP bonus — settlements are always valuable
-      score += context.spatialUrgency * 30;
-      if (context.isEndgame) score += 30;
-      // Bonus for resource diversity the player is currently missing
-      const currentResources = new Set<Resource>();
-      for (const s of player.settlements) {
-        const sp = computeVertexProduction(state, s);
-        for (const r of sp.resourceSet) currentResources.add(r);
-      }
-      for (const s of player.cities) {
-        const sp = computeVertexProduction(state, s);
-        for (const r of sp.resourceSet) currentResources.add(r);
-      }
-      let newResCount = 0;
-      for (const r of prod.resourceSet) {
-        if (!currentResources.has(r)) newResCount++;
-      }
-      score += newResCount * 12; // diversification bonus
-      options.push({
-        name: "settlement",
+      let score = 180 + prod.totalEV * 90;
+      if (context.isEndgame) score += 40;
+      actions.push({
+        name: "settlement-opportunistic",
         score,
         execute: () => ({ type: "build-settlement", playerIndex: botIndex, vertex }),
       });
     }
   }
 
-  // Dev card — base value + army threat awareness
+  // --- CITY (high VP value: 1 VP + doubled production) ---
+  if (canAfford(player, BUILDING_COSTS.city) && context.cityPlan) {
+    const cp = context.cityPlan;
+    let score = 170 + cp.score * 80; // High base — cities are efficient VP
+    if (context.strategy === "cities") score += 30;
+    if (context.isEndgame) score += 40;
+    actions.push({
+      name: "city",
+      score,
+      execute: () => ({ type: "build-city", playerIndex: botIndex, vertex: cp.vertex }),
+    });
+  }
+
+  // --- ROAD (ONLY if it's on the plan path) ---
+  if (canAfford(player, BUILDING_COSTS.road) && player.roads.length < 15) {
+    if (plan && plan.roadPath.length > 0) {
+      // Build the FIRST road on the planned path
+      const nextRoad = plan.roadPath[0];
+      // Verify the road is still available
+      if (state.board.edges[nextRoad] === null) {
+        let score = 80; // Base: roads themselves aren't VP
+
+        // Boost if the plan target is high-value
+        score += plan.vertexScore * 0.3;
+
+        // Boost if contested (race to settle)
+        if (plan.contested) score += 40;
+
+        // Boost if this is the LAST road before settlement placement
+        if (plan.roadPath.length === 1) score += 30;
+
+        // If we can't afford settlement anyway, slight penalty (save resources?)
+        // But if the road is on the path, it's still progress
+        const canAffordSettlement = canAfford(player, {
+          brick: 1 + plan.roadPath.length,
+          lumber: 1 + plan.roadPath.length,
+          grain: 1,
+          wool: 1,
+        });
+        if (!canAffordSettlement && plan.roadPath.length > 1) {
+          // We need more roads AND can't afford everything — build the road if
+          // we can at least save for next turn, but penalize if we're wasting
+          score -= 10;
+        }
+
+        // IMPORTANT: don't build roads if we could build something with VP instead
+        // Settlement/city will outscore this since they start at 170-200
+        actions.push({
+          name: "road-plan",
+          score,
+          execute: () => ({ type: "build-road", playerIndex: botIndex, edge: nextRoad }),
+        });
+      }
+    }
+
+    // Longest road pursuit: build a road even off-plan if it gives us longest road
+    if (context.distanceToLongestRoad <= 2 && player.longestRoadLength >= 3) {
+      const edge = pickBuildRoad(state, botIndex, context);
+      if (edge) {
+        const isOnPlan = plan?.roadPath.includes(edge);
+        if (!isOnPlan) {
+          let score = 60;
+          if (context.distanceToLongestRoad <= 1) score = 110; // +2 VP is huge
+          if (context.longestRoadThreatened) score += 30;
+          actions.push({
+            name: "road-longest",
+            score,
+            execute: () => ({ type: "build-road", playerIndex: botIndex, edge }),
+          });
+        }
+      }
+    }
+  }
+
+  // --- DEV CARD (VP + army + utility) ---
   if (canAfford(player, BUILDING_COSTS.developmentCard) && state.developmentCardDeck.length > 0) {
-    let score = 15 * w.devCardScore;
-    if (context.distanceToLargestArmy <= 2 && player.knightsPlayed >= 2) score += 30;
-    if (context.distanceToLargestArmy <= 1 && player.knightsPlayed >= 2) score += 50;
-    if (context.largestArmyThreatened) score += 20;
-    if (context.isEndgame && context.distanceToLargestArmy <= 2) score += 25;
-    options.push({
+    let score = 50; // Base: dev cards are speculative
+
+    // Army pursuit: dev cards contain knights
+    if (context.distanceToLargestArmy <= 2 && player.knightsPlayed >= 2) score += 40;
+    if (context.distanceToLargestArmy <= 1) score += 60;
+    if (context.largestArmyThreatened) score += 30;
+
+    // Strategy bonus
+    if (context.strategy === "development") score += 25;
+
+    // Endgame: dev cards might contain VP cards
+    if (context.isEndgame) {
+      const vpCardsRemaining = state.developmentCardDeck.length; // we don't know contents, but odds improve
+      score += Math.min(30, vpCardsRemaining * 2);
+    }
+
+    // DON'T buy dev cards if we're saving for a settlement and close
+    if (plan && plan.totalMissing <= 2) {
+      score -= 40; // strongly prefer completing the plan
+    }
+
+    actions.push({
       name: "devCard",
       score,
       execute: () => ({ type: "buy-development-card", playerIndex: botIndex }),
     });
   }
 
-  // Road — low base, boosted by longest road chase and expansion need
-  if (canAfford(player, BUILDING_COSTS.road) && player.roads.length < 15) {
-    const edge = pickBuildRoad(state, botIndex, context);
-    if (edge) {
-      let score = 10 * w.roadScore;
-
-      // Longest road pursuit
-      if (context.distanceToLongestRoad <= 2 && player.longestRoadLength >= 3) score += 25;
-      if (context.distanceToLongestRoad <= 1 && player.longestRoadLength >= 3) score += 40;
-      if (context.longestRoadThreatened) score += 20;
-      if (context.isEndgame && context.distanceToLongestRoad <= 2) score += 15;
-
-      // Expansion: only boost if no settlement spot is reachable
-      if (!hasReachableVertex) {
-        const roadPlan = planRoadPath(state, botIndex, context);
-        if (roadPlan && roadPlan.targetScore > 10) {
-          score += 20 + roadPlan.targetScore * 0.2;
-        } else {
-          score += 5; // very mild — save resources for settlement
-        }
-      }
-
-      // PENALTY: if we're close to affording a settlement, don't waste brick/lumber on roads
-      // Settlement costs: brick, lumber, wool, grain. Road costs: brick, lumber.
-      // If we already have wool+grain (or close), save the brick+lumber for a settlement.
-      if (hasReachableVertex) {
-        // Already can build a settlement — road should almost never win
-        score -= 20;
-      } else {
-        const { brick, lumber, wool, grain } = player.resources;
-        const settlementResourcesReady = (wool >= 1 ? 1 : 0) + (grain >= 1 ? 1 : 0);
-        if (settlementResourcesReady >= 2 && brick >= 1 && lumber >= 1) {
-          // We have all 4 resources for a settlement but no reachable vertex.
-          // Only build a road if it's one road away from a good spot.
-          const roadPlan = planRoadPath(state, botIndex, context);
-          if (!roadPlan || roadPlan.path.length > 1) {
-            score -= 15; // save resources — we're not one road away
-          }
-        } else if (settlementResourcesReady >= 1 && (brick >= 2 || lumber >= 2)) {
-          // Close to settlement — mild penalty on road building
-          score -= 8;
-        }
-      }
-
-      options.push({
-        name: "road",
-        score,
-        execute: () => ({ type: "build-road", playerIndex: botIndex, edge }),
+  // --- SHEEP NUKE (desperation only) ---
+  if (state.config?.sheepNuke && player.resources.wool >= 10) {
+    const nukeScore = evaluateNukeDesirability(state, botIndex, context);
+    if (nukeScore > 0) {
+      actions.push({
+        name: "sheepNuke",
+        score: nukeScore,
+        execute: () => ({ type: "sheep-nuke", playerIndex: botIndex }),
       });
     }
   }
 
-  // Sheep nuke — desperation move only. The nuke always risks self-damage,
-  // so bots only consider it when they're losing badly and have nothing to lose.
-  if (state.config?.sheepNuke && player.resources.wool >= 10) {
-    const leader = context.playerThreats[0];
-    const leaderVP = leader?.visibleVP ?? 0;
-    const vpBehind = leaderVP - context.ownVP;
-    const leaderCloseToWin = leaderVP >= context.vpToWin - 2;
-    const botFarBehind = vpBehind >= 3;
+  return actions;
+}
 
-    // Only consider nuking if desperate: far behind OR leader is about to win
-    if (botFarBehind || leaderCloseToWin) {
-      let bestNukeScore = -Infinity;
-      for (const num of [2, 3, 4, 5, 6, 8, 9, 10, 11, 12]) {
-        let oppDmg = 0, selfDmg = 0;
-        for (const [hk, hex] of Object.entries(state.board.hexes)) {
-          if (hex.number !== num) continue;
-          const parsedHex = parseHexKey(hk);
-          for (const vk of hexVertices(parsedHex)) {
-            const b = state.board.vertices[vk];
-            if (!b) continue;
-            const val = b.type === "city" ? 2 : 1;
-            if (b.playerIndex === botIndex) selfDmg += val;
-            else oppDmg += val;
-          }
-        }
-        const s = oppDmg - selfDmg * 1.5;
-        if (s > bestNukeScore) bestNukeScore = s;
-      }
-      // Only nuke if net damage is positive (hits opponents more than self)
-      if (bestNukeScore >= 1) {
-        // Low base score — this is a hail mary, not a normal build option
-        let score = 5 + bestNukeScore * 8;
-        // The more desperate, the more appealing
-        if (leaderCloseToWin) score += 20;
-        if (vpBehind >= 5) score += 15;
-        options.push({
-          name: "sheepNuke",
-          score,
-          execute: () => ({ type: "sheep-nuke", playerIndex: botIndex }),
-        });
+function evaluateNukeDesirability(state: GameState, botIndex: number, context: BotStrategicContext): number {
+  const leader = context.playerThreats[0];
+  const leaderVP = leader?.visibleVP ?? 0;
+  const vpBehind = leaderVP - context.ownVP;
+  const leaderCloseToWin = leaderVP >= context.vpToWin - 2;
+  const botFarBehind = vpBehind >= 3;
+
+  if (!botFarBehind && !leaderCloseToWin) return -1;
+
+  let bestNukeScore = -Infinity;
+  for (const num of [2, 3, 4, 5, 6, 8, 9, 10, 11, 12]) {
+    let oppDmg = 0, selfDmg = 0;
+    for (const [hk, hex] of Object.entries(state.board.hexes)) {
+      if (hex.number !== num) continue;
+      const parsedHex = parseHexKey(hk);
+      for (const vk of hexVertices(parsedHex)) {
+        const b = state.board.vertices[vk];
+        if (!b) continue;
+        const val = b.type === "city" ? 2 : 1;
+        if (b.playerIndex === botIndex) selfDmg += val;
+        else oppDmg += val;
       }
     }
+    const s = oppDmg - selfDmg * 1.5;
+    if (s > bestNukeScore) bestNukeScore = s;
   }
 
-  // Sort by score descending and try each
-  options.sort((a, b) => b.score - a.score);
-  for (const option of options) {
-    const action = option.execute();
-    if (action) return action;
-  }
+  if (bestNukeScore < 1) return -1;
 
-  // 3. Consider bot-initiated player trade (with escalation on rejection)
-  const playerTrade = pickPlayerTrade(state, botIndex, context);
-  if (playerTrade) {
-    // Build a pair key for the resource combo (what we're offering ↔ what we want)
-    const offerRes = Object.keys(playerTrade.offering)[0] as Resource;
-    const requestRes = Object.keys(playerTrade.requesting)[0] as Resource;
-    const pairKey = `${offerRes}->${requestRes}`;
-    const mem = proposedTradeMemory.get(botIndex);
+  let score = 5 + bestNukeScore * 8;
+  if (leaderCloseToWin) score += 20;
+  if (vpBehind >= 5) score += 15;
+  return score;
+}
 
-    // Check how many times this pair was rejected to determine escalation.
-    // If the bot is proposing the same pair again, it means previous attempts failed
-    // (if they'd succeeded, the bot would have the resource and wouldn't re-propose).
-    let rejections = 0;
-    if (mem && mem.pairKey === pairKey) {
-      // Same pair proposed again = previous attempt was rejected, escalate
-      rejections = mem.rejections + 1;
-    }
+// ============================================================
+// Trading (plan-aware)
+// ============================================================
 
-    // Determine max offer amount based on urgency
-    const maxOffer = playerTrade.maxOffer ?? 1;
-    // Escalate: 1 → 2 → 3, capped by maxOffer and available surplus
-    const offerAmount = Math.min(1 + rejections, maxOffer, playerTrade.surplusCount);
+function tryTrading(state: GameState, botIndex: number, context: BotStrategicContext): GameAction | null {
+  // First try player trade (better rates)
+  const playerTradeAction = tryPlayerTrade(state, botIndex, context);
+  if (playerTradeAction) return playerTradeAction;
 
-    const finalOffering = { [offerRes]: offerAmount };
-    const hash = getTradeHash(finalOffering, playerTrade.requesting);
-
-    // Don't re-send the exact same trade within 2 turns, and don't propose if can't escalate further
-    const maxedOut = mem && mem.pairKey === pairKey && offerAmount <= mem.rejections;
-    const tooRecent = mem && mem.lastHash === hash && state.turnNumber - mem.turn < 2;
-    if (!tooRecent && !maxedOut && offerAmount >= 1) {
-      proposedTradeMemory.set(botIndex, { pairKey, rejections, turn: state.turnNumber, lastHash: hash });
-      return {
-        type: "offer-trade",
-        playerIndex: botIndex,
-        offering: finalOffering,
-        requesting: playerTrade.requesting,
-        toPlayer: null, // open offer
-      };
-    }
-  }
-
-  // 4. Consider bank trading
+  // Then try bank trade
   const bankTrade = pickBankTrade(state, botIndex, context);
   if (bankTrade) {
     return {
@@ -393,39 +426,118 @@ function makeMainPhaseAction(state: GameState, botIndex: number, context: BotStr
     };
   }
 
-  // 5. Nothing useful to do, end turn
-  return { type: "end-turn", playerIndex: botIndex };
+  return null;
 }
 
-function makeRoadBuildingAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
-  const edge = pickBuildRoad(state, botIndex, context);
-  if (edge) {
-    return { type: "build-road", playerIndex: botIndex, edge };
+function tryPlayerTrade(state: GameState, botIndex: number, context: BotStrategicContext): GameAction | null {
+  const playerTrade = pickPlayerTrade(state, botIndex, context);
+  if (!playerTrade) return null;
+
+  const offerRes = Object.keys(playerTrade.offering)[0] as Resource;
+  const requestRes = Object.keys(playerTrade.requesting)[0] as Resource;
+  const pairKey = `${offerRes}->${requestRes}`;
+  const mem = proposedTradeMemory.get(botIndex);
+
+  let rejections = 0;
+  if (mem && mem.pairKey === pairKey) {
+    rejections = mem.rejections + 1;
   }
-  // Fallback: try any valid edge
-  for (const [ek, road] of Object.entries(state.board.edges)) {
-    if (road !== null) continue;
-    const [v1, v2] = edgeEndpoints(ek);
-    for (const v of [v1, v2]) {
-      const building = state.board.vertices[v];
-      if (building && building.playerIndex === botIndex) {
-        return { type: "build-road", playerIndex: botIndex, edge: ek };
-      }
-      if (building && building.playerIndex !== botIndex) continue;
-      const adjEdges = edgesAtVertex(v);
-      for (const ae of adjEdges) {
-        if (ae !== ek && state.board.edges[ae]?.playerIndex === botIndex) {
+
+  const maxOffer = playerTrade.maxOffer ?? 1;
+  const offerAmount = Math.min(1 + rejections, maxOffer, playerTrade.surplusCount);
+
+  const finalOffering = { [offerRes]: offerAmount };
+  const hash = getTradeHash(finalOffering, playerTrade.requesting);
+
+  const maxedOut = mem && mem.pairKey === pairKey && offerAmount <= mem.rejections;
+  const tooRecent = mem && mem.lastHash === hash && state.turnNumber - mem.turn < 2;
+  if (!tooRecent && !maxedOut && offerAmount >= 1) {
+    proposedTradeMemory.set(botIndex, { pairKey, rejections, turn: state.turnNumber, lastHash: hash });
+    return {
+      type: "offer-trade",
+      playerIndex: botIndex,
+      offering: finalOffering,
+      requesting: playerTrade.requesting,
+      toPlayer: null,
+    };
+  }
+
+  return null;
+}
+
+// ============================================================
+// Road building dev card
+// ============================================================
+
+function makeRoadBuildingAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
+  const player = state.players[botIndex];
+  const hasNetwork = player.settlements.length > 0 || player.cities.length > 0 || player.roads.length > 0;
+
+  if (hasNetwork) {
+    // Prefer roads on the settlement plan path
+    const plan = context.settlementPlan;
+    if (plan && plan.roadPath.length > 0) {
+      // Find the first unbuilt road on the plan path
+      for (const ek of plan.roadPath) {
+        if (state.board.edges[ek] === null) {
           return { type: "build-road", playerIndex: botIndex, edge: ek };
         }
       }
+    }
+
+    const edge = pickBuildRoad(state, botIndex, context);
+    if (edge) {
+      return { type: "build-road", playerIndex: botIndex, edge };
+    }
+    // Fallback: try any valid edge connected to our network
+    for (const [ek, road] of Object.entries(state.board.edges)) {
+      if (road !== null) continue;
+      const [v1, v2] = edgeEndpoints(ek);
+      for (const v of [v1, v2]) {
+        const building = state.board.vertices[v];
+        if (building && building.playerIndex === botIndex) {
+          return { type: "build-road", playerIndex: botIndex, edge: ek };
+        }
+        if (building && building.playerIndex !== botIndex) continue;
+        const adjEdges = edgesAtVertex(v);
+        for (const ae of adjEdges) {
+          if (ae !== ek && state.board.edges[ae]?.playerIndex === botIndex) {
+            return { type: "build-road", playerIndex: botIndex, edge: ek };
+          }
+        }
+      }
+    }
+  } else {
+    // No network (everything nuked) — place road at best vertex
+    let bestEdge: string | null = null;
+    let bestScore = -Infinity;
+    for (const [ek, road] of Object.entries(state.board.edges)) {
+      if (road !== null) continue;
+      const [v1, v2] = edgeEndpoints(ek);
+      let score = 0;
+      for (const v of [v1, v2]) {
+        if (state.board.vertices[v] !== null) continue;
+        const vs = computeVertexProduction(state, v);
+        score += vs.totalEV;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestEdge = ek;
+      }
+    }
+    if (bestEdge) {
+      return { type: "build-road", playerIndex: botIndex, edge: bestEdge };
     }
   }
 
   return { type: "end-turn", playerIndex: botIndex };
 }
 
+// ============================================================
+// Sheep nuke pick
+// ============================================================
+
 function makeSheepNukePickAction(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
-  // Pick the number that maximizes opponent damage minus self-damage
   const candidates = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
   let bestNumber = candidates[0];
   let bestScore = -Infinity;
@@ -462,6 +574,10 @@ function makeSheepNukePickAction(state: GameState, botIndex: number, context: Bo
   return { type: "sheep-nuke-pick", playerIndex: botIndex, number: bestNumber };
 }
 
+// ============================================================
+// Helpers
+// ============================================================
+
 function canAfford(
   player: { resources: Record<Resource, number> },
   cost: Partial<Record<Resource, number>>
@@ -472,7 +588,6 @@ function canAfford(
   return true;
 }
 
-/** Check if two resource maps are equivalent (same resources, same amounts) */
 function resourceMapsEqual(
   a: Partial<Record<Resource, number>>,
   b: Partial<Record<Resource, number>>,
@@ -483,15 +598,27 @@ function resourceMapsEqual(
   return true;
 }
 
-/**
- * Generate a counter-offer from a bot.
- *
- * Counter-offers vary based on:
- * - What the proposer originally wanted (try to give them something they asked for)
- * - What the bot actually needs and has surplus of
- * - Offer more when bot has large surplus to make counters attractive
- * - Some randomness to avoid being predictable
- */
+// ============================================================
+// Trade memory
+// ============================================================
+
+const tradeMemory = new Map<string, { tradeHash: string; turn: number; decision: "accept" | "reject" }>();
+const proposedTradeMemory = new Map<number, { pairKey: string; rejections: number; turn: number; lastHash: string }>();
+const counterOfferMemory = new Map<string, {
+  turn: number;
+  result: { offering: Partial<Record<Resource, number>>; requesting: Partial<Record<Resource, number>> } | null;
+}>();
+
+function getTradeHash(offering: Partial<Record<Resource, number>>, requesting: Partial<Record<Resource, number>>): string {
+  const o = ALL_RESOURCES.map((r) => offering[r] ?? 0).join(",");
+  const r = ALL_RESOURCES.map((res) => requesting[res] ?? 0).join(",");
+  return `${o}|${r}`;
+}
+
+// ============================================================
+// Counter-offers
+// ============================================================
+
 export function generateBotCounterOffer(
   state: GameState,
   botIndex: number
@@ -499,13 +626,10 @@ export function generateBotCounterOffer(
   const trade = state.pendingTrades.find((t) => t.fromPlayer !== botIndex && (t.toPlayer === null || t.toPlayer === botIndex));
   if (!trade) return null;
 
-  // Check counter-offer memory: return cached result if same trade was already countered this turn
-  // BUT also verify the bot can still afford the counter (resources may have changed after a trade executed)
   const coTradeHash = getTradeHash(trade.offering, trade.requesting);
   const coMemKey = `${botIndex}-${coTradeHash}`;
   const coMem = counterOfferMemory.get(coMemKey);
   if (coMem && coMem.turn === state.turnNumber) {
-    // Validate the cached counter is still affordable
     if (coMem.result) {
       const bot = state.players[botIndex];
       const canStillAfford = Object.entries(coMem.result.offering).every(
@@ -515,7 +639,6 @@ export function generateBotCounterOffer(
         ([r, amt]) => (amt || 0) > 0 && bot.resources[r as Resource] < 3
       );
       if (!canStillAfford || !stillNeeds) {
-        // Resources changed (trade was executed) — clear cache, skip counter
         counterOfferMemory.delete(coMemKey);
         return null;
       }
@@ -523,21 +646,16 @@ export function generateBotCounterOffer(
     return coMem.result;
   }
 
-  // Suppress counters that are identical to the original trade (= just accepting)
   function isIdenticalToOriginal(counter: { offering: Partial<Record<Resource, number>>; requesting: Partial<Record<Resource, number>> }): boolean {
     return resourceMapsEqual(counter.offering, trade!.requesting) && resourceMapsEqual(counter.requesting, trade!.offering);
   }
 
-  // Generate the counter-offer (may involve randomness), then cache it.
-  // Counter-offers MUST relate to the original trade — they should be modifications
-  // of the original deal (adjusted quantities, swapped resources), not random trades.
   function generate(): { offering: Partial<Record<Resource, number>>; requesting: Partial<Record<Resource, number>> } | null {
     let counterChance = 0.3;
     try {
       const context = computeStrategicContext(state, botIndex);
       counterChance = context.weights.counterOfferChance;
 
-      // VP gate: don't counter-offer to someone about to win
       const fromVP = state.players[trade!.fromPlayer].victoryPoints;
       if (fromVP >= context.vpToWin - 1) return null;
 
@@ -546,19 +664,19 @@ export function generateBotCounterOffer(
       const bot = state.players[botIndex];
       const proposer = state.players[trade!.fromPlayer];
 
-      // What the proposer originally asked for (what they want from us)
       const proposerWants = ALL_RESOURCES.filter((r) => (trade!.requesting[r] ?? 0) > 0);
-      // What the proposer originally offered (what they'd give us)
       const proposerOffering = ALL_RESOURCES.filter((r) => (trade!.offering[r] ?? 0) > 0);
 
-      // Build a scored list of what the bot can offer and what it wants
       const canOffer: { res: Resource; surplus: number }[] = [];
       const wants: { res: Resource; urgency: number }[] = [];
 
       for (const r of ALL_RESOURCES) {
         const have = bot.resources[r];
         const goalNeed = context.buildGoal?.missingResources[r] ?? 0;
-        const spareAfterGoal = have - goalNeed;
+        // Also consider settlement plan needs
+        const planNeed = context.settlementPlan?.missingResources[r] ?? 0;
+        const totalNeed = Math.max(goalNeed, planNeed);
+        const spareAfterGoal = have - totalNeed;
 
         if (spareAfterGoal >= 2) {
           canOffer.push({ res: r, surplus: spareAfterGoal });
@@ -566,12 +684,11 @@ export function generateBotCounterOffer(
           canOffer.push({ res: r, surplus: 1 });
         }
 
-        if (goalNeed > 0 && have < goalNeed) {
-          wants.push({ res: r, urgency: goalNeed - have });
+        if (totalNeed > 0 && have < totalNeed) {
+          wants.push({ res: r, urgency: totalNeed - have });
         }
       }
 
-      // Fallback wants: resources with 0 count
       if (wants.length === 0) {
         for (const r of ALL_RESOURCES) {
           if (bot.resources[r] === 0) wants.push({ res: r, urgency: 1 });
@@ -580,17 +697,12 @@ export function generateBotCounterOffer(
 
       if (canOffer.length === 0 || wants.length === 0) return null;
 
-      // Filter wants to only request resources the proposer likely has.
-      // The proposer offered these resources, so they probably have them.
-      // Also include resources they have 2+ of (visible in hand count).
       const proposerLikelyHas = new Set<Resource>(proposerOffering);
       for (const r of ALL_RESOURCES) {
         if (proposer.resources[r] >= 2) proposerLikelyHas.add(r);
       }
 
-      // --- Strategy 1: Adjust quantities on the original trade ---
-      // The bot gives what the proposer wants, and asks for what the proposer offered,
-      // but adjusts the amounts to be more favorable to the bot.
+      // Strategy 1: Adjust quantities on original trade
       const canGiveProposerWants = canOffer.filter((c) => proposerWants.includes(c.res));
       const wantFromProposer = wants.filter((w) => proposerOffering.includes(w.res));
 
@@ -598,32 +710,23 @@ export function generateBotCounterOffer(
         const give = canGiveProposerWants[Math.floor(Math.random() * canGiveProposerWants.length)];
         const want = wantFromProposer[Math.floor(Math.random() * wantFromProposer.length)];
 
-        // Ask for more or offer less than the original
         const origGiveAmt = trade!.requesting[give.res] ?? 1;
         const origWantAmt = trade!.offering[want.res] ?? 1;
 
-        // Reduce what we give (but at least 1), or increase what we ask for
         let giveAmount = Math.max(1, origGiveAmt - 1);
         let wantAmount = origWantAmt;
-        // If we have large surplus, match original give amount (be generous)
         if (give.surplus >= 4) giveAmount = origGiveAmt;
-        // Sometimes ask for a bit more
         if (Math.random() < 0.3 && proposer.resources[want.res] >= origWantAmt + 1) {
           wantAmount = origWantAmt + 1;
         }
 
         const counter = { offering: { [give.res]: giveAmount }, requesting: { [want.res]: wantAmount } };
         if (!isIdenticalToOriginal(counter)) return counter;
-        // If identical, fall through to try other strategies
       }
 
-      // --- Strategy 2: Give what they want, but ask for a different resource ---
-      // Swap what we're requesting for something else we need, but still give
-      // something the proposer wanted.
+      // Strategy 2: Give what they want, request different resource
       if (canGiveProposerWants.length > 0) {
-        // Filter wants to resources the proposer likely has
         const feasibleWants = wants.filter((w) => proposerLikelyHas.has(w.res));
-        // Prefer resources from the original trade, then feasible alternatives
         const alternativeWants = feasibleWants.filter((w) => !proposerOffering.includes(w.res));
         const wantPool = alternativeWants.length > 0 ? alternativeWants : feasibleWants;
 
@@ -637,17 +740,12 @@ export function generateBotCounterOffer(
         }
       }
 
-      // --- Strategy 3: Offer a different resource, but give them something related ---
-      // We can't give exactly what they want, so offer a substitute resource,
-      // but still ask for something from the original trade.
+      // Strategy 3: Offer different resource, ask for what they were giving
       if (wantFromProposer.length > 0) {
-        // Find resources we can offer that are "related" — same category or at least
-        // something the proposer might want (they don't have much of it)
         const alternativeOffers = canOffer.filter(
           (c) => !proposerWants.includes(c.res) && proposer.resources[c.res] <= 1
         );
         if (alternativeOffers.length > 0) {
-          // Sort by surplus descending to offer the most attractive deal
           alternativeOffers.sort((a, b) => b.surplus - a.surplus);
           const give = alternativeOffers[0];
           const want = wantFromProposer[Math.floor(Math.random() * wantFromProposer.length)];
@@ -658,36 +756,15 @@ export function generateBotCounterOffer(
         }
       }
 
-      // --- Strategy 4 (last resort): Offer surplus for a resource the proposer was offering ---
-      // Still anchored to the original trade — we ask for something they offered,
-      // and give something we have surplus of.
-      if (proposerOffering.length > 0) {
-        const relevantWants = wants.filter((w) => proposerOffering.includes(w.res));
-        const relevantOffers = canOffer.filter((c) => !proposerOffering.includes(c.res));
-        if (relevantWants.length > 0 && relevantOffers.length > 0) {
-          relevantOffers.sort((a, b) => b.surplus - a.surplus);
-          const give = relevantOffers[0];
-          const want = relevantWants[Math.floor(Math.random() * relevantWants.length)];
-          if (give.res !== want.res) {
-            const counter = { offering: { [give.res]: 1 }, requesting: { [want.res]: 1 } };
-            if (!isIdenticalToOriginal(counter)) return counter;
-          }
-        }
-      }
-
-      // No viable counter-offer that relates to the original trade — give up
       return null;
     } catch {
-      // Fallback: try to make a counter related to the original trade
       if (Math.random() > counterChance) return null;
 
       const bot = state.players[botIndex];
       const proposerOffering = ALL_RESOURCES.filter((r) => (trade!.offering[r] ?? 0) > 0);
       const proposerWants = ALL_RESOURCES.filter((r) => (trade!.requesting[r] ?? 0) > 0);
 
-      // Offer something the proposer wanted (that we have surplus of)
       const surplusOfWanted = proposerWants.filter((r) => bot.resources[r] > 1);
-      // Request something the proposer was offering (that we're short on)
       const wantFromOffered = proposerOffering.filter((r) => bot.resources[r] <= 1);
 
       if (surplusOfWanted.length > 0 && wantFromOffered.length > 0) {
@@ -708,34 +785,10 @@ export function generateBotCounterOffer(
   return result;
 }
 
-// Trade memory — bots remember their decision on identical trades for several turns
-const tradeMemory = new Map<string, { tradeHash: string; turn: number; decision: "accept" | "reject" }>();
+// ============================================================
+// Trade response (plan-aware)
+// ============================================================
 
-// Per-bot trade proposal memory — tracks rejections for escalation (1:1 → 2:1 → 3:1)
-// Key: botIndex, Value: { resource pair key, rejection count, last turn offered }
-const proposedTradeMemory = new Map<number, { pairKey: string; rejections: number; turn: number; lastHash: string }>();
-
-// Counter-offer memory — bots give the same counter-offer for the same trade within a turn
-const counterOfferMemory = new Map<string, {
-  turn: number;
-  result: { offering: Partial<Record<Resource, number>>; requesting: Partial<Record<Resource, number>> } | null;
-}>();
-
-function getTradeHash(offering: Partial<Record<Resource, number>>, requesting: Partial<Record<Resource, number>>): string {
-  const o = ALL_RESOURCES.map((r) => offering[r] ?? 0).join(",");
-  const r = ALL_RESOURCES.map((res) => requesting[res] ?? 0).join(",");
-  return `${o}|${r}`;
-}
-
-/**
- * Decide whether a bot should accept or reject a pending trade offer.
- *
- * Uses a scoring system that weighs:
- * - How much the bot needs what it's getting
- * - How much the bot can spare what it's giving
- * - The generosity of the offer (giving 3 cards for 1 is very attractive)
- * - Personality (trader bots accept more freely)
- */
 export function decideBotTradeResponse(state: GameState, botIndex: number): "accept" | "reject" {
   const trade = state.pendingTrades.find((t) => t.fromPlayer !== botIndex && (t.toPlayer === null || t.toPlayer === botIndex));
   if (!trade) return "reject";
@@ -744,14 +797,14 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
 
   const bot = state.players[botIndex];
 
-  // Check if bot can afford to give the requested resources FIRST (before memory)
+  // Can we afford it?
   for (const [res, amount] of Object.entries(trade.requesting)) {
     if ((amount || 0) > bot.resources[res as Resource]) {
       return "reject";
     }
   }
 
-  // Bots remember their decision on identical trades for several turns
+  // Check memory
   const memKey = `${botIndex}`;
   const tradeHash = getTradeHash(trade.offering, trade.requesting);
   const mem = tradeMemory.get(memKey);
@@ -759,96 +812,76 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
     return mem.decision;
   }
 
-  // Compute context for enhanced evaluation
   let context: BotStrategicContext | undefined;
   try {
     context = computeStrategicContext(state, botIndex);
   } catch {
-    // Fallback to basic evaluation
+    // Fallback
   }
 
   // Hard reject: never trade with someone about to win
   if (context) {
     const fromVP = state.players[trade.fromPlayer].victoryPoints;
-    const vpToWin = context.vpToWin;
-    if (fromVP >= vpToWin - 1) {
+    if (fromVP >= context.vpToWin - 1) {
       tradeMemory.set(memKey, { tradeHash, turn: state.turnNumber, decision: "reject" });
       return "reject";
     }
   }
 
-  // --- Score-based evaluation ---
-  // Positive score = good trade, negative = bad trade
+  // Score the trade
   let score = 0;
-
-  // Count total cards exchanged
   let totalGiving = 0;
   let totalGaining = 0;
   for (const amount of Object.values(trade.requesting)) totalGiving += (amount || 0);
   for (const amount of Object.values(trade.offering)) totalGaining += (amount || 0);
 
-  // Generosity bonus: if they're offering more cards than requesting, that's attractive
-  // e.g., they offer 3 cards for 1 → generosity = 2
   const generosity = totalGaining - totalGiving;
   score += generosity * 2;
 
-  // Evaluate each resource we're gaining
+  // Score what we're gaining (plan-aware)
   for (const [res, amount] of Object.entries(trade.offering)) {
     const amt = amount || 0;
     if (amt === 0) continue;
     const r = res as Resource;
 
-    if (context?.buildGoal) {
-      const missing = context.buildGoal.missingResources[r] ?? 0;
-      if (missing > 0) {
-        // We need this for our build goal — very valuable
-        score += Math.min(amt, missing) * 3;
-        // Extra cards beyond goal need are still nice
-        if (amt > missing) score += (amt - missing) * 1;
-      } else {
-        // Don't need it for build goal, but still a card
-        score += amt * 0.5;
-      }
+    // Check if this resource advances our plan
+    const planNeed = context?.settlementPlan?.missingResources[r] ?? 0;
+    const goalNeed = context?.buildGoal?.missingResources[r] ?? 0;
+    const totalNeed = Math.max(planNeed, goalNeed);
+
+    if (totalNeed > 0) {
+      score += Math.min(amt, totalNeed) * 3.5; // High value — advances our plan
+      if (amt > totalNeed) score += (amt - totalNeed) * 0.5;
+    } else if (bot.resources[r] === 0) {
+      score += amt * 1.5; // Resource we don't have
     } else {
-      // No build goal context: any resource we have 0 of is useful
-      if (bot.resources[r] === 0) score += amt * 2;
-      else score += amt * 0.5;
+      score += amt * 0.3; // Surplus
     }
   }
 
-  // Evaluate each resource we're giving away
+  // Score what we're giving away (plan-aware)
   for (const [res, amount] of Object.entries(trade.requesting)) {
     const amt = amount || 0;
     if (amt === 0) continue;
     const r = res as Resource;
 
-    if (context?.buildGoal) {
-      const missing = context.buildGoal.missingResources[r] ?? 0;
-      const have = bot.resources[r];
+    const planNeed = context?.settlementPlan?.missingResources[r] ?? 0;
+    const goalNeed = context?.buildGoal?.missingResources[r] ?? 0;
+    const totalNeed = Math.max(planNeed, goalNeed);
+    const have = bot.resources[r];
 
-      if (missing > 0 && have - amt < missing) {
-        // Giving away something we need for our goal and won't have enough — painful
-        score -= amt * 3;
-      } else if (have - amt >= 2) {
-        // We'll still have plenty left — barely hurts
-        score -= amt * 0.3;
-      } else if (have - amt >= 1) {
-        // We'll have 1 left — moderate cost
-        score -= amt * 1;
-      } else {
-        // Giving away our last one
-        score -= amt * 1.5;
-      }
+    if (totalNeed > 0 && have - amt < totalNeed) {
+      score -= amt * 3.5; // Giving away plan resources!
+    } else if (have - amt >= 2) {
+      score -= amt * 0.3;
+    } else if (have - amt >= 1) {
+      score -= amt * 1;
     } else {
-      // No context: penalize based on how many we'll have left
-      const have = bot.resources[r];
-      if (have - amt <= 0) score -= amt * 2;
-      else if (have - amt === 1) score -= amt * 1;
-      else score -= amt * 0.5;
+      score -= amt * 1.5;
     }
   }
 
-  // VP penalty: slight reluctance to trade with leaders (but not a hard block)
+  // VP penalty for trading with leaders
   if (context) {
     const fromVP = state.players[trade.fromPlayer].victoryPoints;
     const botVP = context.ownVP;
@@ -856,8 +889,6 @@ export function decideBotTradeResponse(state: GameState, botIndex: number): "acc
     else if (fromVP >= botVP + 1) score -= 0.5;
   }
 
-  // Personality adjustment: trader personality has threshold -2 (accepts easier),
-  // aggressive has +1 (harder to please)
   const threshold = context?.weights.tradeAcceptThreshold ?? 0;
   const decision = score > threshold ? "accept" : "reject";
 

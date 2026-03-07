@@ -238,6 +238,53 @@ export function playCollect() {
   playSquareNote(784, t + 0.1, 0.15, 0.04);
 }
 
+/** Nuke countdown tick — ominous descending beep (3, 2, 1) */
+export function playNukeCountdown() {
+  if (_masterVolume === 0 || _sfxMuted) return;
+  const ctx = getContext();
+  const t = safeNow(ctx);
+  const vol = 0.1 * (_masterVolume / 100);
+
+  // Sharp warning beep
+  const osc = ctx.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(440, t);
+  osc.frequency.exponentialRampToValueAtTime(220, t + 0.15);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  gain.gain.setValueAtTime(0, t + 0.201);
+
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.25);
+}
+
+/** Nuke siren — rising alarm before detonation */
+export function playNukeSiren() {
+  if (_masterVolume === 0 || _sfxMuted) return;
+  const ctx = getContext();
+  const t = safeNow(ctx);
+  const vol = 0.08 * (_masterVolume / 100);
+
+  const osc = ctx.createOscillator();
+  osc.type = "square";
+  osc.frequency.setValueAtTime(200, t);
+  osc.frequency.exponentialRampToValueAtTime(800, t + 0.4);
+  osc.frequency.exponentialRampToValueAtTime(200, t + 0.8);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.setValueAtTime(vol, t + 0.6);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+  gain.gain.setValueAtTime(0, t + 0.851);
+
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.9);
+}
+
 /** Sheep nuke explosion — dramatic 8-bit boom with rumble */
 export function playExplosion() {
   if (_masterVolume === 0 || _sfxMuted) return;

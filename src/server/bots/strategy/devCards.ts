@@ -90,7 +90,7 @@ export function pickDevCardToPlay(
 
 /**
  * Get the resources we need most, up to `count`.
- * Prioritizes build goal resources first, then falls back to general needs.
+ * Plan-aware: prioritizes settlement plan → city plan → build goal.
  */
 export function getMostNeededResources(
   state: GameState,
@@ -101,7 +101,27 @@ export function getMostNeededResources(
   const player = state.players[playerIndex];
   const needed: Resource[] = [];
 
-  // Prioritize build goal resources
+  // Priority 1: Settlement plan resources
+  if (context?.settlementPlan) {
+    for (const [res, amount] of Object.entries(context.settlementPlan.missingResources)) {
+      if ((amount || 0) > 0 && !needed.includes(res as Resource)) {
+        needed.push(res as Resource);
+        if (needed.length >= count) return needed;
+      }
+    }
+  }
+
+  // Priority 2: City plan resources
+  if (context?.cityPlan) {
+    for (const [res, amount] of Object.entries(context.cityPlan.missingResources)) {
+      if ((amount || 0) > 0 && !needed.includes(res as Resource)) {
+        needed.push(res as Resource);
+        if (needed.length >= count) return needed;
+      }
+    }
+  }
+
+  // Priority 3: Build goal resources
   if (context?.buildGoal) {
     for (const [res, amount] of Object.entries(context.buildGoal.missingResources)) {
       if ((amount || 0) > 0 && !needed.includes(res as Resource)) {
@@ -111,7 +131,7 @@ export function getMostNeededResources(
     }
   }
 
-  // If close to army and need dev card, prioritize those resources
+  // Priority 4: Army pursuit
   if (context && context.distanceToLargestArmy <= 2 && context.strategy === "development") {
     const devCost = BUILDING_COSTS.developmentCard;
     for (const [res, amount] of Object.entries(devCost)) {
@@ -124,6 +144,7 @@ export function getMostNeededResources(
     }
   }
 
+  // Fallback: general build goals
   const goals: Array<{ name: string; cost: Partial<Record<Resource, number>> }> = [
     { name: "city", cost: BUILDING_COSTS.city },
     { name: "settlement", cost: BUILDING_COSTS.settlement },
@@ -161,9 +182,9 @@ function pickMonopolyResource(state: GameState, playerIndex: number, context?: B
 
   for (const res of ALL_RESOURCES) {
     let totalOpponentCards = 0;
-    for (const p of state.players) {
-      if (p.index === playerIndex) continue;
-      totalOpponentCards += p.resources[res];
+    for (let i = 0; i < state.players.length; i++) {
+      if (i === playerIndex) continue;
+      totalOpponentCards += state.players[i].resources[res];
     }
 
     if (totalOpponentCards < minGain) continue;

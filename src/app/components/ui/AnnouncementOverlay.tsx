@@ -66,7 +66,7 @@ function getAnnouncementConfig(announcement: Announcement) {
         bgColor: "bg-red-900/90",
         borderColor: "border-orange-400",
         textColor: "text-orange-200",
-        duration: 3500,
+        duration: 4500,
       };
     case "sheep-nuke-doubles":
       return {

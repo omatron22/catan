@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { DiceRoll } from "@/shared/types/game";
-import { playDiceRoll } from "@/app/utils/sounds";
+import { playDiceRoll, playNukeCountdown, playNukeSiren, playExplosion } from "@/app/utils/sounds";
 
 interface Props {
   diceResult: DiceRoll;
@@ -61,9 +61,13 @@ export default function NukeSequenceOverlay({
     if (phase !== "countdown") return;
 
     if (countdown <= 0) {
+      playNukeSiren();
       setPhase("rolling");
       return;
     }
+
+    // Play countdown beep for each number
+    playNukeCountdown();
 
     const timer = setTimeout(() => {
       setCountdown((c) => c - 1);
@@ -96,9 +100,11 @@ export default function NukeSequenceOverlay({
     };
   }, [phase]);
 
-  // Result phase: pause then complete
+  // Result phase: explosion sound, pause then complete
   useEffect(() => {
     if (phase !== "result") return;
+
+    playExplosion();
 
     const timer = setTimeout(() => {
       if (!completedRef.current) {

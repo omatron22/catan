@@ -229,16 +229,31 @@ export default function GamePage() {
         if (totalDestroyed === 0) {
           detail = "Nothing was destroyed!";
         } else {
-          const parts: string[] = [];
-          if (buildings > 0) parts.push(`${buildings} building${buildings > 1 ? "s" : ""}`);
-          if (roads > 0) parts.push(`${roads} road${roads > 1 ? "s" : ""}`);
-          const comments = totalDestroyed <= 2
-            ? ["took a hit", "felt that one", "needs a moment"]
-            : totalDestroyed <= 4
-            ? ["got rekt", "is in shambles"]
-            : ["is absolutely cooked", "needs to call 911"];
-          const comment = comments[totalDestroyed % comments.length];
-          detail = `${parts.join(" and ")} destroyed!\n${p.name} ${comment}`;
+          const casualties = event.data?.casualties as Record<number, { name: string; settlements: number; cities: number; roads: number }> | undefined;
+          const lines: string[] = [];
+          if (casualties) {
+            const mildComments = ["took a hit", "felt that one", "barely survived"];
+            const mediumComments = ["got rekt", "is in shambles", "won't forget this"];
+            const severeComments = ["is absolutely cooked", "needs to call 911", "'s empire is dust"];
+            for (const [, info] of Object.entries(casualties)) {
+              const parts: string[] = [];
+              if (info.settlements > 0) parts.push(`${info.settlements} settlement${info.settlements > 1 ? "s" : ""}`);
+              if (info.cities > 0) parts.push(`${info.cities} cit${info.cities > 1 ? "ies" : "y"}`);
+              if (info.roads > 0) parts.push(`${info.roads} road${info.roads > 1 ? "s" : ""}`);
+              const total = info.settlements + info.cities + info.roads;
+              const pool = total <= 2 ? mildComments : total <= 4 ? mediumComments : severeComments;
+              const comment = pool[Math.floor(Math.random() * pool.length)];
+              lines.push(`${info.name} lost ${parts.join(", ")} — ${comment}`);
+            }
+          }
+          if (lines.length > 0) {
+            detail = lines.join("\n");
+          } else {
+            const parts: string[] = [];
+            if (buildings > 0) parts.push(`${buildings} building${buildings > 1 ? "s" : ""}`);
+            if (roads > 0) parts.push(`${roads} road${roads > 1 ? "s" : ""}`);
+            detail = `${parts.join(" and ")} destroyed!`;
+          }
         }
         setAnnouncement({ playerName: p.name, playerColor: PLAYER_COLOR_HEX[p.color], type: "sheep-nuke-destroyed", detail, extra: String(event.data?.number ?? "") });
         return;

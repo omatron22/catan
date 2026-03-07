@@ -1,5 +1,5 @@
-import type { GameState, Resource } from "@/shared/types/game";
-import type { HexKey, VertexKey } from "@/shared/types/coordinates";
+import type { GameState, Resource, PortType } from "@/shared/types/game";
+import type { HexKey, VertexKey, EdgeKey } from "@/shared/types/coordinates";
 import type { BotPersonality } from "@/shared/types/config";
 import {
   hexVertices,
@@ -11,6 +11,7 @@ import {
 import { calculateLongestRoad } from "@/server/engine/longestRoad";
 import { NUMBER_DOTS, TERRAIN_RESOURCE, ALL_RESOURCES, BUILDING_COSTS, MIN_KNIGHTS_FOR_LARGEST_ARMY, MIN_ROADS_FOR_LONGEST_ROAD } from "@/shared/constants";
 import { getWeights, type PersonalityWeights } from "../personality";
+import { scoreVertex, computeVertexProduction } from "./placement";
 
 export type BotStrategy = "expansion" | "cities" | "development";
 
@@ -21,13 +22,9 @@ export interface PlayerThreat {
   devCardCount: number;
   roadLength: number;
   knightsPlayed: number;
-  /** Total production rate (expected resources/turn) */
   totalProduction: number;
-  /** Per-resource production rates */
   productionRates: Record<Resource, number>;
-  /** Whether this player produces both ore and grain */
   hasCityResources: boolean;
-  /** Whether this player has any port access */
   hasPortAccess: boolean;
 }
 
@@ -37,51 +34,76 @@ export interface BuildGoal {
   estimatedTurns: number;
 }
 
+/**
+ * A concrete plan: "I want to build a settlement at vertex X.
+ * I need to build N roads to get there, then the settlement itself.
+ * Here's the total cost and steps."
+ */
+export interface SettlementPlan {
+  /** Target vertex for the new settlement */
+  targetVertex: VertexKey;
+  /** Score of the target vertex (production EV) */
+  vertexScore: number;
+  /** Road edges to build (in order) to reach the vertex */
+  roadPath: EdgeKey[];
+  /** Total resources needed for all roads + settlement */
+  totalCost: Partial<Record<Resource, number>>;
+  /** Resources still missing after what we have in hand */
+  missingResources: Partial<Record<Resource, number>>;
+  /** Total missing resource count */
+  totalMissing: number;
+  /** Estimated turns to complete (considering production + ports) */
+  estimatedTurns: number;
+  /** Is an opponent also racing toward this vertex? */
+  contested: boolean;
+}
+
+/**
+ * Effective trade ratios for each resource (considering ports).
+ * E.g., if the player has a brick port, brick ratio is 2. Otherwise 4 (or 3 with any port).
+ */
+export type TradeRatios = Record<Resource, number>;
+
 export interface BotStrategicContext {
-  /** Actual player index */
   playerIndex: number;
-  /** Expected resources per turn (dots/36 × building multiplier) per resource */
   productionRates: Record<Resource, number>;
-  /** Own road length */
+  /** Total expected resources per turn */
+  totalProduction: number;
   ownRoadLength: number;
-  /** Distance to claiming/retaining longest road */
   distanceToLongestRoad: number;
-  /** Own knights played */
   ownKnightsPlayed: number;
-  /** Distance to claiming/retaining largest army */
   distanceToLargestArmy: number;
-  /** Per-opponent threat assessment */
   playerThreats: PlayerThreat[];
-  /** Chosen high-level strategy */
   strategy: BotStrategy;
-  /** Game progress: max VP / vpToWin */
   gameProgress: number;
-  /** VP to win */
   vpToWin: number;
-  /** Resources the bot doesn't produce at all */
   missingResources: Resource[];
-  /** Bot personality */
   personality: BotPersonality;
-  /** Personality weights */
   weights: PersonalityWeights;
-  /** Current primary build target (first of buildGoals) */
   buildGoal: BuildGoal | null;
-  /** Ranked list of all viable build goals */
   buildGoals: BuildGoal[];
-  /** Whether bot is in endgame mode */
   isEndgame: boolean;
-  /** Bot's total VP (visible + hidden) */
   ownVP: number;
-  /** Turn order position (0 = picks first in setup draft) */
   turnOrderPosition: number;
-  /** Total player count */
   playerCount: number;
-  /** How threatened expansion paths are (0-1) */
   spatialUrgency: number;
-  /** Opponent within 1 road of overtaking longest road */
   longestRoadThreatened: boolean;
-  /** Opponent within 1 knight of overtaking largest army */
   largestArmyThreatened: boolean;
+
+  // ===== NEW: Plan-based fields =====
+
+  /** The bot's primary settlement plan (build roads → settle) */
+  settlementPlan: SettlementPlan | null;
+  /** Secondary settlement plans (ranked alternatives) */
+  alternativePlans: SettlementPlan[];
+  /** City upgrade plan: which settlement to upgrade, and what's missing */
+  cityPlan: { vertex: VertexKey; score: number; missingResources: Partial<Record<Resource, number>>; totalMissing: number } | null;
+  /** Effective bank trade ratios per resource (considering ports) */
+  tradeRatios: TradeRatios;
+  /** Resources the bot can "effectively produce" via ports (produce X → trade for Y) */
+  effectiveProduction: Record<Resource, number>;
+  /** VP paths to victory: how many VP from each source */
+  vpPaths: { settlements: number; cities: number; longestRoad: number; largestArmy: number; devCards: number };
 }
 
 /**
@@ -96,7 +118,7 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
   // --- Production rates ---
   const productionRates: Record<Resource, number> = { brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0 };
 
-  for (const [hk, hex] of Object.entries(state.board.hexes)) {
+  for (const [, hex] of Object.entries(state.board.hexes)) {
     if (!hex.number || hex.hasRobber) continue;
     const resource = TERRAIN_RESOURCE[hex.terrain];
     if (!resource) continue;
@@ -112,6 +134,14 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
       productionRates[resource] += probability * multiplier;
     }
   }
+
+  const totalProduction = Object.values(productionRates).reduce((s, v) => s + v, 0);
+
+  // --- Trade ratios (port-aware) ---
+  const tradeRatios = computeTradeRatios(player.portsAccess);
+
+  // --- Effective production (what can we "produce" via port trading?) ---
+  const effectiveProduction = computeEffectiveProduction(productionRates, tradeRatios);
 
   // --- Road length ---
   const ownRoadLength = calculateLongestRoad(state, playerIndex);
@@ -151,7 +181,7 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
     const roadLen = calculateLongestRoad(state, i);
     const devCardCount = p.developmentCards.length + p.newDevelopmentCards.length;
 
-    let threatScore = p.victoryPoints + devCardCount * 0.2;
+    let threatScore = p.victoryPoints + devCardCount * 0.3;
 
     if (longestRoadHolder === null && roadLen >= MIN_ROADS_FOR_LONGEST_ROAD - 1) {
       threatScore += 1.5;
@@ -164,9 +194,8 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
       threatScore += 1.5;
     }
 
-    // --- Production quality: compute opponent's production rates ---
     const opponentProduction: Record<Resource, number> = { brick: 0, lumber: 0, ore: 0, grain: 0, wool: 0 };
-    for (const [hk, hex] of Object.entries(state.board.hexes)) {
+    for (const [, hex] of Object.entries(state.board.hexes)) {
       if (!hex.number || hex.hasRobber) continue;
       const resource = TERRAIN_RESOURCE[hex.terrain];
       if (!resource) continue;
@@ -181,24 +210,19 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
       }
     }
 
-    const totalProduction = Object.values(opponentProduction).reduce((s, v) => s + v, 0);
+    const oppTotalProduction = Object.values(opponentProduction).reduce((s, v) => s + v, 0);
     const hasCityResources = opponentProduction.ore > 0 && opponentProduction.grain > 0;
     const hasPortAccess = p.portsAccess.length > 0;
 
-    // Production quality bonus: scale by how much better than average (0.8 res/turn baseline)
-    const productionBonus = Math.max(0, (totalProduction - 0.8) * 1.5);
+    const productionBonus = Math.max(0, (oppTotalProduction - 0.8) * 1.5);
     threatScore += productionBonus;
 
-    // Resource complementarity: ore+grain combo is threatening (city potential)
     if (hasCityResources) {
-      // Stronger bonus if both rates are meaningful
       const cityCombo = Math.min(opponentProduction.ore, opponentProduction.grain);
       threatScore += cityCombo * 2;
     }
 
-    // Port access bonus: ports make resource conversion efficient
     if (hasPortAccess) {
-      // Specific resource ports are more threatening
       const specificPorts = p.portsAccess.filter((pt) => pt !== "any").length;
       threatScore += specificPorts * 0.5 + (p.portsAccess.includes("any") ? 0.3 : 0);
     }
@@ -210,7 +234,7 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
       devCardCount,
       roadLength: roadLen,
       knightsPlayed: p.knightsPlayed,
-      totalProduction,
+      totalProduction: oppTotalProduction,
       productionRates: opponentProduction,
       hasCityResources,
       hasPortAccess,
@@ -233,19 +257,8 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
   // --- Spatial urgency ---
   const spatialUrgency = computeSpatialUrgency(state, playerIndex);
 
-  // --- Strategy selection ---
-  const brickLumber = productionRates.brick + productionRates.lumber;
-  const oreGrain = productionRates.ore + productionRates.grain;
-  const woolOreGrain = productionRates.wool + productionRates.ore + productionRates.grain;
-
-  let strategy: BotStrategy;
-  if (oreGrain > brickLumber * 1.3) {
-    strategy = "cities";
-  } else if (woolOreGrain > brickLumber * 1.2 && distanceToLargestArmy <= 3) {
-    strategy = "development";
-  } else {
-    strategy = "expansion";
-  }
+  // --- Strategy selection (now considers game phase and board state) ---
+  const strategy = pickStrategy(productionRates, distanceToLargestArmy, player, state);
 
   // --- Game progress ---
   const maxVP = Math.max(...state.players.map((p) => p.victoryPoints));
@@ -260,17 +273,29 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
   // --- Endgame detection ---
   const isEndgame = ownVP >= vpToWin * weights.endgameThreshold;
 
-  // --- Build goals (ranked by proximity, no personality weighting) ---
-  const buildGoals = computeBuildGoals(state, playerIndex, productionRates);
+  // --- Build goals (for backward compat — trading still uses these) ---
+  const buildGoals = computeBuildGoals(state, playerIndex, productionRates, tradeRatios);
   const buildGoal = buildGoals.length > 0 ? buildGoals[0] : null;
 
-  // --- Turn order position (actual draft position, not player index) ---
+  // --- Turn order position ---
   const numPlayers = state.players.length;
   const turnOrderPosition = (playerIndex - state.startingPlayerIndex + numPlayers) % numPlayers;
+
+  // --- Settlement plans (the core of plan-based decision making) ---
+  const allPlans = computeSettlementPlans(state, playerIndex, productionRates, tradeRatios);
+  const settlementPlan = allPlans.length > 0 ? allPlans[0] : null;
+  const alternativePlans = allPlans.slice(1, 4);
+
+  // --- City plan ---
+  const cityPlan = computeCityPlan(state, playerIndex);
+
+  // --- VP paths to victory ---
+  const vpPaths = computeVPPaths(ownVP, vpToWin, player, distanceToLongestRoad, distanceToLargestArmy, state);
 
   return {
     playerIndex,
     productionRates,
+    totalProduction,
     ownRoadLength,
     distanceToLongestRoad,
     ownKnightsPlayed,
@@ -291,18 +316,383 @@ export function computeStrategicContext(state: GameState, playerIndex: number): 
     spatialUrgency,
     longestRoadThreatened,
     largestArmyThreatened,
+    settlementPlan,
+    alternativePlans,
+    cityPlan,
+    tradeRatios,
+    effectiveProduction,
+    vpPaths,
   };
 }
 
+// ============================================================
+// Trade ratios
+// ============================================================
+
+function computeTradeRatios(portsAccess: PortType[]): TradeRatios {
+  const ratios: TradeRatios = { brick: 4, lumber: 4, ore: 4, grain: 4, wool: 4 };
+  const hasAny = portsAccess.includes("any");
+  for (const res of ALL_RESOURCES) {
+    if (portsAccess.includes(res)) {
+      ratios[res] = 2;
+    } else if (hasAny) {
+      ratios[res] = 3;
+    }
+  }
+  return ratios;
+}
+
 /**
- * Compute spatial urgency: ratio of expandable vertices threatened by opponents.
+ * Effective production: for resources we don't produce directly, estimate
+ * how quickly we could acquire them via port trading our surplus.
+ * E.g., if we produce 0.4 brick/turn and have a 2:1 brick port,
+ * we effectively produce 0.2 of any resource per turn via brick.
  */
+function computeEffectiveProduction(
+  productionRates: Record<Resource, number>,
+  tradeRatios: TradeRatios,
+): Record<Resource, number> {
+  const effective = { ...productionRates };
+
+  // Find our best "conversion" resource: highest production / trade ratio
+  let bestConversionRate = 0;
+  for (const res of ALL_RESOURCES) {
+    const conversionRate = productionRates[res] / tradeRatios[res];
+    if (conversionRate > bestConversionRate) {
+      bestConversionRate = conversionRate;
+    }
+  }
+
+  // For resources we don't produce, estimate via conversion
+  for (const res of ALL_RESOURCES) {
+    if (effective[res] === 0) {
+      effective[res] = bestConversionRate * 0.5; // discount since you lose the source resource
+    }
+  }
+
+  return effective;
+}
+
+// ============================================================
+// Settlement plans
+// ============================================================
+
+/**
+ * Find all viable settlement plans: target vertex + road path + cost.
+ * BFS from the player's road/building frontier to find reachable settlement spots.
+ * Ranks by: vertex quality / (cost + competition).
+ */
+function computeSettlementPlans(
+  state: GameState,
+  playerIndex: number,
+  productionRates: Record<Resource, number>,
+  tradeRatios: TradeRatios,
+): SettlementPlan[] {
+  const player = state.players[playerIndex];
+  // Can't build more settlements if at max
+  if (player.settlements.length + player.cities.length >= 5) return [];
+
+  const plans: SettlementPlan[] = [];
+
+  // Find frontier vertices (at end of our road network or at our buildings)
+  const frontierVertices = new Set<VertexKey>();
+  for (const road of player.roads) {
+    const [v1, v2] = edgeEndpoints(road);
+    for (const v of [v1, v2]) {
+      const building = state.board.vertices[v];
+      // Include if empty or our own building
+      if (!building || building.playerIndex === playerIndex) {
+        frontierVertices.add(v);
+      }
+    }
+  }
+  // Also include vertices at our buildings (for 0-road plans)
+  for (const s of player.settlements) frontierVertices.add(s);
+  for (const c of player.cities) frontierVertices.add(c);
+
+  // BFS up to 4 roads deep
+  const maxDepth = 4;
+  interface QueueItem {
+    vertex: VertexKey;
+    path: EdgeKey[];
+    depth: number;
+  }
+
+  const visited = new Set<VertexKey>();
+  const queue: QueueItem[] = [];
+  for (const fv of frontierVertices) {
+    queue.push({ vertex: fv, path: [], depth: 0 });
+    visited.add(fv);
+  }
+
+  while (queue.length > 0) {
+    const item = queue.shift()!;
+    if (item.depth >= maxDepth) continue;
+
+    const adjEdges = edgesAtVertex(item.vertex);
+    for (const ek of adjEdges) {
+      if (state.board.edges[ek] !== null) continue; // already occupied
+
+      const [v1, v2] = edgeEndpoints(ek);
+      const otherEnd = v1 === item.vertex ? v2 : v1;
+
+      if (visited.has(otherEnd)) continue;
+
+      // Can't pass through opponent buildings
+      const otherBuilding = state.board.vertices[otherEnd];
+      if (otherBuilding && otherBuilding.playerIndex !== playerIndex) continue;
+
+      const newPath = [...item.path, ek];
+      visited.add(otherEnd);
+
+      // Check if this is a valid settlement spot
+      if (!otherBuilding) {
+        const adjVerts = adjacentVertices(otherEnd);
+        const tooClose = adjVerts.some(
+          (av) => state.board.vertices[av] !== null && state.board.vertices[av] !== undefined
+        );
+        if (!tooClose) {
+          const vs = scoreVertex(state, otherEnd, playerIndex);
+          if (vs > 0) {
+            const plan = buildSettlementPlan(
+              state, playerIndex, otherEnd, newPath, vs,
+              productionRates, tradeRatios
+            );
+            plans.push(plan);
+          }
+        }
+      }
+
+      if (item.depth + 1 < maxDepth) {
+        queue.push({ vertex: otherEnd, path: newPath, depth: item.depth + 1 });
+      }
+    }
+  }
+
+  // Rank plans by value / cost, with contested spots boosted
+  plans.sort((a, b) => {
+    const aValue = a.vertexScore / (1 + a.totalMissing * 0.3 + a.roadPath.length * 0.5);
+    const bValue = b.vertexScore / (1 + b.totalMissing * 0.3 + b.roadPath.length * 0.5);
+    // Contested spots get a urgency bonus
+    const aBonus = a.contested ? aValue * 0.3 : 0;
+    const bBonus = b.contested ? bValue * 0.3 : 0;
+    return (bValue + bBonus) - (aValue + aBonus);
+  });
+
+  return plans;
+}
+
+function buildSettlementPlan(
+  state: GameState,
+  playerIndex: number,
+  targetVertex: VertexKey,
+  roadPath: EdgeKey[],
+  vertexScore: number,
+  productionRates: Record<Resource, number>,
+  tradeRatios: TradeRatios,
+): SettlementPlan {
+  const player = state.players[playerIndex];
+
+  // Total cost = N roads + 1 settlement
+  const totalCost: Partial<Record<Resource, number>> = {};
+  const roadCount = roadPath.length;
+  if (roadCount > 0) {
+    totalCost.brick = (totalCost.brick || 0) + roadCount;
+    totalCost.lumber = (totalCost.lumber || 0) + roadCount;
+  }
+  // Settlement cost
+  totalCost.brick = (totalCost.brick || 0) + 1;
+  totalCost.lumber = (totalCost.lumber || 0) + 1;
+  totalCost.grain = (totalCost.grain || 0) + 1;
+  totalCost.wool = (totalCost.wool || 0) + 1;
+
+  // Missing resources
+  const missingResources: Partial<Record<Resource, number>> = {};
+  let totalMissing = 0;
+  for (const [res, amount] of Object.entries(totalCost)) {
+    const need = (amount || 0) - player.resources[res as Resource];
+    if (need > 0) {
+      missingResources[res as Resource] = need;
+      totalMissing += need;
+    }
+  }
+
+  // Estimate turns to complete (using effective production including ports)
+  let estimatedTurns = 0;
+  if (totalMissing > 0) {
+    for (const [res, need] of Object.entries(missingResources)) {
+      const rate = productionRates[res as Resource];
+      if (rate > 0) {
+        estimatedTurns = Math.max(estimatedTurns, (need as number) / rate);
+      } else {
+        // Can we get it via port trading?
+        const bestConversion = getBestConversionTurns(res as Resource, need as number, productionRates, tradeRatios);
+        estimatedTurns = Math.max(estimatedTurns, bestConversion);
+      }
+    }
+  }
+
+  // Is this spot contested? (opponent road nearby)
+  const contested = isVertexContested(state, targetVertex, playerIndex);
+
+  return {
+    targetVertex,
+    vertexScore,
+    roadPath,
+    totalCost,
+    missingResources,
+    totalMissing,
+    estimatedTurns,
+    contested,
+  };
+}
+
+function getBestConversionTurns(
+  targetRes: Resource,
+  amount: number,
+  productionRates: Record<Resource, number>,
+  tradeRatios: TradeRatios,
+): number {
+  let bestTurns = 30; // worst case
+  for (const sourceRes of ALL_RESOURCES) {
+    if (sourceRes === targetRes) continue;
+    const rate = productionRates[sourceRes];
+    if (rate <= 0) continue;
+    const ratio = tradeRatios[sourceRes];
+    // Need `amount * ratio` of sourceRes to get `amount` of targetRes
+    const turnsNeeded = (amount * ratio) / rate;
+    if (turnsNeeded < bestTurns) bestTurns = turnsNeeded;
+  }
+  return bestTurns;
+}
+
+function isVertexContested(state: GameState, vertex: VertexKey, playerIndex: number): boolean {
+  const adjEdges = edgesAtVertex(vertex);
+  for (const ae of adjEdges) {
+    const road = state.board.edges[ae];
+    if (road && road.playerIndex !== playerIndex) return true;
+  }
+  // Also check if opponent is 1 vertex away with roads
+  const adjVerts = adjacentVertices(vertex);
+  for (const av of adjVerts) {
+    const avEdges = edgesAtVertex(av);
+    for (const ae of avEdges) {
+      const road = state.board.edges[ae];
+      if (road && road.playerIndex !== playerIndex) return true;
+    }
+  }
+  return false;
+}
+
+// ============================================================
+// City plan
+// ============================================================
+
+function computeCityPlan(
+  state: GameState,
+  playerIndex: number,
+): BotStrategicContext["cityPlan"] {
+  const player = state.players[playerIndex];
+  if (player.settlements.length === 0 || player.cities.length >= 4) return null;
+
+  let bestVertex: VertexKey | null = null;
+  let bestScore = 0;
+
+  for (const v of player.settlements) {
+    const prod = computeVertexProduction(state, v);
+    // Cities double production, so score by how much production we gain
+    if (prod.totalEV > bestScore) {
+      bestScore = prod.totalEV;
+      bestVertex = v;
+    }
+  }
+
+  if (!bestVertex) return null;
+
+  const cityCost = BUILDING_COSTS.city;
+  const missingResources: Partial<Record<Resource, number>> = {};
+  let totalMissing = 0;
+  for (const [res, amount] of Object.entries(cityCost)) {
+    const need = (amount || 0) - player.resources[res as Resource];
+    if (need > 0) {
+      missingResources[res as Resource] = need;
+      totalMissing += need;
+    }
+  }
+
+  return { vertex: bestVertex, score: bestScore, missingResources, totalMissing };
+}
+
+// ============================================================
+// VP paths
+// ============================================================
+
+function computeVPPaths(
+  ownVP: number,
+  vpToWin: number,
+  player: { settlements: VertexKey[]; cities: VertexKey[]; developmentCards: string[]; knightsPlayed: number; hasLongestRoad: boolean; hasLargestArmy: boolean },
+  distanceToLongestRoad: number,
+  distanceToLargestArmy: number,
+  state: GameState,
+): BotStrategicContext["vpPaths"] {
+  const vpNeeded = vpToWin - ownVP;
+
+  // How many VP could we get from each source?
+  const maxNewSettlements = Math.min(5 - player.settlements.length - player.cities.length, 3);
+  const maxNewCities = Math.min(4 - player.cities.length, player.settlements.length);
+  const longestRoadVP = player.hasLongestRoad ? 0 : (distanceToLongestRoad <= 3 ? 2 : 0);
+  const largestArmyVP = player.hasLargestArmy ? 0 : (distanceToLargestArmy <= 3 ? 2 : 0);
+  const vpCards = player.developmentCards.filter(c => c === "victoryPoint").length;
+
+  return {
+    settlements: maxNewSettlements,
+    cities: maxNewCities,
+    longestRoad: longestRoadVP,
+    largestArmy: largestArmyVP,
+    devCards: vpCards + (state.developmentCardDeck.length > 0 ? 1 : 0),
+  };
+}
+
+// ============================================================
+// Strategy selection
+// ============================================================
+
+function pickStrategy(
+  productionRates: Record<Resource, number>,
+  distanceToLargestArmy: number,
+  player: { settlements: VertexKey[]; cities: VertexKey[]; roads: EdgeKey[] },
+  state: GameState,
+): BotStrategy {
+  const brickLumber = productionRates.brick + productionRates.lumber;
+  const oreGrain = productionRates.ore + productionRates.grain;
+  const woolOreGrain = productionRates.wool + productionRates.ore + productionRates.grain;
+
+  // Early game: always expand if we have few buildings
+  const totalBuildings = player.settlements.length + player.cities.length;
+  if (totalBuildings <= 2) return "expansion";
+
+  // If we produce ore+grain well and have settlements to upgrade → cities
+  if (oreGrain > brickLumber * 1.3 && player.settlements.length > 0) {
+    return "cities";
+  }
+
+  // If we produce dev card resources and army is close → development
+  if (woolOreGrain > brickLumber * 1.2 && distanceToLargestArmy <= 3) {
+    return "development";
+  }
+
+  return "expansion";
+}
+
+// ============================================================
+// Spatial urgency (unchanged)
+// ============================================================
+
 function computeSpatialUrgency(state: GameState, playerIndex: number): number {
   const playerRoads = state.players[playerIndex].roads;
   if (playerRoads.length === 0) return 0;
 
   const expandableSet = new Set<string>();
-
   for (const road of playerRoads) {
     const [v1, v2] = edgeEndpoints(road);
     for (const v of [v1, v2]) {
@@ -317,7 +707,7 @@ function computeSpatialUrgency(state: GameState, playerIndex: number): number {
     }
   }
 
-  if (expandableSet.size === 0) return 1; // Can't expand = max urgency
+  if (expandableSet.size === 0) return 1;
 
   let threatened = 0;
   for (const v of expandableSet) {
@@ -326,7 +716,6 @@ function computeSpatialUrgency(state: GameState, playerIndex: number): number {
     for (const av of adj) {
       const b = state.board.vertices[av];
       if (b && b.playerIndex !== playerIndex) { isThreatened = true; break; }
-      // Check 2nd hop
       const adj2 = adjacentVertices(av);
       for (const sv of adj2) {
         if (sv === v) continue;
@@ -341,13 +730,15 @@ function computeSpatialUrgency(state: GameState, playerIndex: number): number {
   return threatened / expandableSet.size;
 }
 
-/**
- * Compute ranked build goals by proximity (no personality weighting).
- */
+// ============================================================
+// Build goals (for backward compat with trading)
+// ============================================================
+
 function computeBuildGoals(
   state: GameState,
   playerIndex: number,
   productionRates: Record<Resource, number>,
+  tradeRatios: TradeRatios,
 ): BuildGoal[] {
   const player = state.players[playerIndex];
   const candidates: Array<BuildGoal & { score: number }> = [];
@@ -382,7 +773,7 @@ function computeBuildGoals(
         if (rate > 0) {
           estimatedTurns = Math.max(estimatedTurns, (need as number) / rate);
         } else {
-          estimatedTurns = Math.max(estimatedTurns, 20);
+          estimatedTurns = Math.max(estimatedTurns, getBestConversionTurns(res as Resource, need as number, productionRates, tradeRatios));
         }
       }
     }

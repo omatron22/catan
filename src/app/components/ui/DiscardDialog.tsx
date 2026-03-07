@@ -82,12 +82,20 @@ export default function DiscardDialog({ player, playerIndex, onAction }: Props) 
           ))}
         </div>
 
+        {/* Progress bar */}
+        <div className="w-full h-2 bg-gray-300 border border-black mb-3">
+          <div
+            className={`h-full transition-all ${currentDiscard >= discardAmount ? "bg-green-500" : "bg-red-500"}`}
+            style={{ width: `${Math.min(100, (currentDiscard / discardAmount) * 100)}%` }}
+          />
+        </div>
+
         <button
           onClick={handleDiscard}
           disabled={currentDiscard !== discardAmount}
           className={`w-full py-2 font-pixel text-[9px] ${
             currentDiscard === discardAmount
-              ? "bg-red-600 text-white pixel-btn"
+              ? "bg-green-600 text-white pixel-btn"
               : "bg-gray-400 text-gray-200 cursor-not-allowed border-2 border-black"
           }`}
         >

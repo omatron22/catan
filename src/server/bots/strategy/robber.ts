@@ -5,7 +5,7 @@ import {
   parseHexKey,
   hexKey,
 } from "@/shared/utils/hexMath";
-import { NUMBER_DOTS, TERRAIN_RESOURCE } from "@/shared/constants";
+import { NUMBER_DOTS, TERRAIN_RESOURCE, ALL_RESOURCES } from "@/shared/constants";
 import type { BotStrategicContext } from "./context";
 
 /**
@@ -230,34 +230,56 @@ export function pickDiscardResources(
   const total = Object.values(player.resources).reduce((s, n) => s + n, 0);
   const discardCount = Math.floor(total / 2);
 
-  // Strategy-aware resource values
+  // Plan-aware resource values: protect resources needed for our plan
   const resourceValue: Record<Resource, number> = {
-    ore: 4, grain: 3, wool: 2, brick: 2, lumber: 2,
+    ore: 3, grain: 3, wool: 2, brick: 2, lumber: 2,
   };
 
   if (context) {
-    // Boost value of resources matching strategy
-    if (context.strategy === "expansion") {
-      resourceValue.brick = 4;
-      resourceValue.lumber = 4;
-    } else if (context.strategy === "cities") {
-      resourceValue.ore = 5;
-      resourceValue.grain = 4;
-    } else if (context.strategy === "development") {
-      resourceValue.wool = 4;
-      resourceValue.ore = 5;
-      resourceValue.grain = 3;
+    // Boost value of resources we DON'T produce (harder to replace)
+    for (const res of ALL_RESOURCES) {
+      if (context.productionRates[res] === 0) {
+        resourceValue[res] += 2; // hard to replace
+      } else if (context.productionRates[res] <= 0.05) {
+        resourceValue[res] += 1; // rare production
+      }
     }
 
-    // Sheep nuke awareness: slightly prefer keeping wool if nuke is enabled,
-    // but don't obsess over it — nuke is a desperation move
+    // Strategy-based adjustments
+    if (context.strategy === "expansion") {
+      resourceValue.brick += 1;
+      resourceValue.lumber += 1;
+    } else if (context.strategy === "cities") {
+      resourceValue.ore += 2;
+      resourceValue.grain += 1;
+    } else if (context.strategy === "development") {
+      resourceValue.wool += 1;
+      resourceValue.ore += 2;
+    }
+
+    // Sheep nuke awareness
     if (state.config?.sheepNuke && player.resources.wool >= 8) {
       resourceValue.wool = Math.max(resourceValue.wool, 3);
     }
 
-    // Build goal protection: boost value of resources needed for goal
-    if (context.buildGoal) {
-      const hoarding = context.weights.resourceHoarding;
+    // Plan protection: strongly protect resources needed for settlement/city plan
+    const hoarding = context.weights.resourceHoarding;
+    if (context.settlementPlan) {
+      for (const [res, amount] of Object.entries(context.settlementPlan.missingResources)) {
+        if ((amount || 0) > 0) {
+          resourceValue[res as Resource] += 3 * hoarding;
+        }
+      }
+    }
+    if (context.cityPlan) {
+      for (const [res, amount] of Object.entries(context.cityPlan.missingResources)) {
+        if ((amount || 0) > 0) {
+          resourceValue[res as Resource] += 2 * hoarding;
+        }
+      }
+    }
+    // Fallback to build goal
+    if (context.buildGoal && !context.settlementPlan) {
       for (const [res, amount] of Object.entries(context.buildGoal.missingResources)) {
         if ((amount || 0) > 0) {
           resourceValue[res as Resource] += 3 * hoarding;

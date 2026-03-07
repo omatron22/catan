@@ -563,7 +563,9 @@ function handleBuildRoad(state: GameState, playerIndex: number, edge: EdgeKey): 
   if (state.board.edges[edge] !== null) return { valid: false, error: "Edge already has a road" };
 
   // Must connect to player's network (road, settlement, or city)
-  if (!isConnectedToNetwork(state, playerIndex, edge)) {
+  // Exception: if player has no buildings AND no roads (e.g., all nuked), allow placing anywhere
+  const playerHasNetwork = player.settlements.length > 0 || player.cities.length > 0 || player.roads.length > 0;
+  if (playerHasNetwork && !isConnectedToNetwork(state, playerIndex, edge)) {
     return { valid: false, error: "Must connect to your road network" };
   }
 
@@ -1374,6 +1376,12 @@ function destroyStructuresOnNumber(state: GameState, number: number, instigatorI
   }
 
   const totalDestroyed = destroyedVertices.size + destroyedEdges.size;
+  // Build per-player casualty summary for the event
+  const casualties: Record<number, { name: string; settlements: number; cities: number; roads: number }> = {};
+  for (const [pidx, counts] of destructionByPlayer) {
+    casualties[pidx] = { name: state.players[pidx].name, ...counts };
+  }
+
   events.push({
     type: "sheep-nuke-destroyed",
     playerIndex: instigatorIndex,
@@ -1383,6 +1391,7 @@ function destroyStructuresOnNumber(state: GameState, number: number, instigatorI
       roadsDestroyed: destroyedEdges.size,
       destroyedVertexKeys: Array.from(destroyedVertices),
       destroyedEdgeKeys: Array.from(destroyedEdges),
+      casualties,
     },
   });
 

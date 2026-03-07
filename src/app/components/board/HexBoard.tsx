@@ -285,23 +285,36 @@ export default function HexBoard({
               }
             }
 
+            // Build a set of vertices that have roads from multiple players
+            const vertexPlayers: Record<string, Set<number>> = {};
+            for (const [key, road] of Object.entries(board.edges)) {
+              if (!road) continue;
+              const [v1, v2] = edgeEndpoints(key);
+              if (!vertexPlayers[v1]) vertexPlayers[v1] = new Set();
+              if (!vertexPlayers[v2]) vertexPlayers[v2] = new Set();
+              vertexPlayers[v1].add(road.playerIndex);
+              vertexPlayers[v2].add(road.playerIndex);
+            }
+
             // Shorten a chain's endpoints so roads don't overlap at shared vertices.
-            // Only shorten an endpoint if the vertex has NO building from this player
-            // (buildings cover the gap, so we keep full length under own buildings).
+            // Only shorten when another player has roads at the vertex (to avoid overlap).
+            // Don't shorten if only this player's roads meet there — keeps same-color seamless.
             const SHORTEN = 0.18; // fraction to pull back from vertex center
             function shortenedPoints(chain: string[], pi: number) {
               const pts = chain.map((v) => vertexToPixel(v, size));
               if (pts.length >= 2) {
                 const first = chain[0];
                 const bFirst = board.vertices[first];
-                if (!bFirst || bFirst.playerIndex !== pi) {
+                const shouldShortenFirst = (!bFirst || bFirst.playerIndex !== pi) && (vertexPlayers[first]?.size ?? 0) > 1;
+                if (shouldShortenFirst) {
                   const dx = pts[1].x - pts[0].x;
                   const dy = pts[1].y - pts[0].y;
                   pts[0] = { x: pts[0].x + dx * SHORTEN, y: pts[0].y + dy * SHORTEN };
                 }
                 const last = chain[chain.length - 1];
                 const bLast = board.vertices[last];
-                if (!bLast || bLast.playerIndex !== pi) {
+                const shouldShortenLast = (!bLast || bLast.playerIndex !== pi) && (vertexPlayers[last]?.size ?? 0) > 1;
+                if (shouldShortenLast) {
                   const n = pts.length - 1;
                   const dx = pts[n - 1].x - pts[n].x;
                   const dy = pts[n - 1].y - pts[n].y;

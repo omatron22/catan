@@ -13,7 +13,7 @@ import { useMultiplayerStore } from "@/app/stores/multiplayerStore";
 import { playClick, playNavigate, playError as playErrorSound, startMusic } from "@/app/utils/sounds";
 import SettingsDropdown from "@/app/components/ui/SettingsDropdown";
 import CloudLayer from "@/app/components/ui/CloudLayer";
-import { loadPreferences, loadGameModePrefs, saveGameModePrefs } from "@/app/utils/preferences";
+import { loadPreferences, savePreferences, loadGameModePrefs, saveGameModePrefs } from "@/app/utils/preferences";
 
 const ALL_COLORS = PLAYER_COLORS;
 const MAX_PLAYERS = 8;
@@ -64,7 +64,6 @@ export default function Home() {
   const [customVp, setCustomVp] = useState(10);
   const [chatMessages, setChatMessages] = useState<{ sender: string; text: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [colorPickerOpen, setColorPickerOpen] = useState<number | null>(null);
   const [stylePickerOpen, setStylePickerOpen] = useState<number | null>(null);
   const [editingNameIdx, setEditingNameIdx] = useState<number | null>(null);
   const [buildingStyles, setBuildingStyles] = useState<Record<number, BuildingStyle>>({
@@ -73,7 +72,7 @@ export default function Home() {
     3: BOT_DEFAULTS[2].style,
   });
   const [validationError, setValidationError] = useState<string | null>(null);
-  const colorPickerRef = useRef<HTMLDivElement>(null);
+  const stylePickerRef = useRef<HTMLDivElement>(null);
 
   // Persist lobby visibility across refresh
   useEffect(() => {
@@ -155,18 +154,18 @@ export default function Home() {
     });
   }, [prefsLoaded, fairDice, friendlyRobber, doublesRollAgain, sheepNuke, turnTimer, customVp, expansionBoard]);
 
-  // Close color picker on outside click
+  // Close style/color picker on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
-        setColorPickerOpen(null);
+      if (stylePickerRef.current && !stylePickerRef.current.contains(e.target as Node)) {
+        setStylePickerOpen(null);
       }
     }
-    if (colorPickerOpen !== null) {
+    if (stylePickerOpen !== null) {
       document.addEventListener("mousedown", handleClick);
       return () => document.removeEventListener("mousedown", handleClick);
     }
-  }, [colorPickerOpen]);
+  }, [stylePickerOpen]);
 
   const usedColors = new Set(players.map((p) => p.color));
 
@@ -210,12 +209,18 @@ export default function Home() {
     } else {
       updatePlayer(playerIdx, { color });
     }
-    setColorPickerOpen(null);
+    // Save human player's color preference
+    if (playerIdx === 0) {
+      savePreferences({ color });
+    }
   }
 
   function pickStyle(playerIdx: number, style: BuildingStyle) {
     playClick();
     setBuildingStyles((prev) => ({ ...prev, [playerIdx]: style }));
+    if (playerIdx === 0) {
+      savePreferences({ buildingStyle: style });
+    }
     setStylePickerOpen(null);
   }
 
@@ -430,22 +435,8 @@ export default function Home() {
 
           <div className="px-4 space-y-2 md:overflow-y-auto flex-1">
             {players.map((player, idx) => (
-              <div key={idx} className="relative">
+              <div key={idx} className="relative" ref={stylePickerOpen === idx ? stylePickerRef : undefined}>
                 <div className="flex items-center gap-2 bg-[#e8d8b8] px-2 py-1.5 border-2 border-black">
-                  {/* Color swatch */}
-                  <button
-                    className="w-6 h-6 border-2 border-black cursor-pointer shrink-0 relative"
-                    style={{ backgroundColor: PLAYER_COLOR_HEX[player.color] }}
-                    onClick={() => { setColorPickerOpen(colorPickerOpen === idx ? null : idx); setStylePickerOpen(null) }}
-                    title={`Color: ${player.color}`}
-                  >
-                    <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold"
-                      style={{ color: ["white", "yellow"].includes(player.color) ? "#333" : "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
-                    >
-                      {colorPickerOpen === idx ? "\u25B2" : "\u25BC"}
-                    </span>
-                  </button>
-
                   {/* Name — click to edit */}
                   {editingNameIdx === idx ? (
                     <input
@@ -469,11 +460,11 @@ export default function Home() {
                     </span>
                   )}
 
-                  {/* Building style */}
+                  {/* Building style + color (combined button) */}
                   <button
                     className={`w-7 h-7 flex items-center justify-center border-2 shrink-0 ${stylePickerOpen === idx ? "border-amber-500 bg-amber-50" : "border-gray-400 hover:border-gray-600"}`}
-                    onClick={() => { setStylePickerOpen(stylePickerOpen === idx ? null : idx); setColorPickerOpen(null) }}
-                    title={`Style: ${STYLE_DEFS[buildingStyles[idx] ?? DEFAULT_BUILDING_STYLE].name}`}
+                    onClick={() => { setStylePickerOpen(stylePickerOpen === idx ? null : idx); }}
+                    title={`Style & Color`}
                   >
                     <StylePreview
                       style={buildingStyles[idx] ?? DEFAULT_BUILDING_STYLE}
@@ -494,39 +485,33 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Color picker dropdown */}
-                {colorPickerOpen === idx && (
-                  <div ref={colorPickerRef} className="bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
-                    <div className="flex flex-wrap gap-1">
+                {/* Combined color + style picker dropdown */}
+                {stylePickerOpen === idx && (
+                  <div className="absolute left-0 z-50 w-52 bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
+                    {/* Color swatches */}
+                    <div className="flex flex-wrap gap-1 mb-1.5 pb-1.5 border-b border-[#c4a96a]">
                       {ALL_COLORS.map((c) => {
                         const isCurrent = player.color === c;
                         const taken = usedColors.has(c) && !isCurrent;
                         return (
                           <button
                             key={c}
-                            className={`relative flex items-center gap-1 px-1.5 py-0.5 border-2 transition-all ${
+                            className={`w-5 h-5 border-2 transition-all ${
                               isCurrent
-                                ? "border-gray-900 scale-105"
+                                ? "border-gray-900 scale-110"
                                 : taken
                                   ? "border-gray-300 opacity-35 cursor-not-allowed"
-                                  : "border-gray-400 hover:border-gray-700 cursor-pointer hover:scale-105"
+                                  : "border-gray-400 hover:border-gray-700 cursor-pointer hover:scale-110"
                             }`}
-                            style={{ backgroundColor: `${PLAYER_COLOR_HEX[c]}25` }}
+                            style={{ backgroundColor: PLAYER_COLOR_HEX[c] }}
                             onClick={() => !taken && pickColor(idx, c)}
                             disabled={taken}
-                          >
-                            <span className="w-3 h-3 border border-black/30 shrink-0" style={{ backgroundColor: PLAYER_COLOR_HEX[c] }} />
-                            <span className="font-pixel text-[5px] text-gray-700 uppercase">{c}</span>
-                          </button>
+                            title={c}
+                          />
                         );
                       })}
                     </div>
-                  </div>
-                )}
-
-                {/* Style picker dropdown */}
-                {stylePickerOpen === idx && (
-                  <div className="absolute left-0 z-50 w-52 bg-[#f5edd5] border-2 border-t-0 border-black px-2 py-1.5">
+                    {/* Building styles */}
                     <div className="grid grid-cols-2 gap-1">
                       {BUILDING_STYLES.map((s) => {
                         const isCurrent = (buildingStyles[idx] ?? DEFAULT_BUILDING_STYLE) === s;
@@ -541,8 +526,8 @@ export default function Home() {
                             onClick={() => pickStyle(idx, s)}
                           >
                             <div className="flex gap-0.5">
-                              <StylePreview style={s} type="settlement" color="#888" />
-                              <StylePreview style={s} type="city" color="#888" />
+                              <StylePreview style={s} type="settlement" color={PLAYER_COLOR_HEX[player.color]} />
+                              <StylePreview style={s} type="city" color={PLAYER_COLOR_HEX[player.color]} />
                             </div>
                             <span className="font-pixel text-[5px] text-gray-700">{STYLE_DEFS[s].name.toUpperCase()}</span>
                           </button>

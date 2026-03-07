@@ -779,6 +779,15 @@ function computeVPPaths(
 // Strategy selection
 // ============================================================
 
+/**
+ * Pick strategy based on what we're ACTUALLY producing, not what we wish we produced.
+ * Theory: "Adapt strategy based on actual resource production. If you planned expansion
+ * but only produce ore+grain, pivot to cities. If you planned cities but only produce
+ * brick+lumber, pivot to expansion."
+ *
+ * Also considers: board state (are expansion spots available?), army distance,
+ * and what opponents are doing (if everyone is expanding, maybe go dev cards).
+ */
 function pickStrategy(
   productionRates: Record<Resource, number>,
   distanceToLargestArmy: number,
@@ -793,17 +802,32 @@ function pickStrategy(
   const totalBuildings = player.settlements.length + player.cities.length;
   if (totalBuildings <= 2) return "expansion";
 
-  // If we produce ore+grain well and have settlements to upgrade → cities
+  // === STRATEGY PIVOTING ===
+  // If expansion is blocked (at max settlements or no brick/lumber), pivot
+  const canExpand = totalBuildings < 5 && brickLumber > 0.1;
+  const canBuildCities = player.settlements.length > 0 && oreGrain > 0.15;
+
+  // === FORCED PIVOTS ===
+  // Can't expand? Must pivot to cities or development.
+  if (!canExpand && canBuildCities) return "cities";
+  if (!canExpand && !canBuildCities && woolOreGrain > 0.2) return "development";
+
+  // Produce ore+grain well and have settlements to upgrade → cities
   if (oreGrain > brickLumber * 1.3 && player.settlements.length > 0) {
     return "cities";
   }
 
-  // If we produce dev card resources and army is close → development
+  // Produce dev card resources and army is close → development
   if (woolOreGrain > brickLumber * 1.2 && distanceToLargestArmy <= 3) {
     return "development";
   }
 
-  return "expansion";
+  // Default: if we have decent brick+lumber, expand
+  if (canExpand) return "expansion";
+
+  // Fallback based on what we actually produce
+  if (canBuildCities) return "cities";
+  return "development";
 }
 
 // ============================================================

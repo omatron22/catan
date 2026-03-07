@@ -18,12 +18,20 @@ export function pickDevCardToPlay(
   const cards = player.developmentCards;
   const knightEagerness = context?.weights.knightEagerness ?? 1.0;
 
-  // --- Endgame: play VP cards if they would win ---
+  // --- VP card awareness ---
+  // Theory: "Save VP cards for the winning turn. Don't waste other dev cards
+  // if VP cards already push you over the finish line."
   if (context?.isEndgame && cards.includes("victoryPoint")) {
     const vpCards = cards.filter((c) => c === "victoryPoint").length;
     if (context.ownVP + vpCards >= context.vpToWin) {
-      // VP cards are auto-revealed at win — no action needed
-      // But let's prioritize other cards that help win
+      // We can already win with VP cards alone (auto-revealed at win).
+      // Only play a knight if it would help (army finish or robber control).
+      // Don't waste road building, year of plenty, or monopoly — save the turn.
+      if (cards.includes("knight") && context.distanceToLargestArmy === 1) {
+        return { card: "knight" }; // army + VP cards = even bigger win margin
+      }
+      // Otherwise, don't play anything — let the VP cards auto-win
+      return null;
     }
   }
 
@@ -53,26 +61,42 @@ export function pickDevCardToPlay(
     }
   }
 
-  // Play road building — plan-aware: only when it advances settlement plan or longest road
+  // Play road building — plan-aware: only when it advances a concrete goal
+  // Theory: "Road building is best when it reaches a settlement spot or claims longest road.
+  // Don't play it just because you have it."
   if (cards.includes("roadBuilding")) {
-    // Need room for at least 1 road, and must have a network to extend from
     const canBuildRoads = player.roads.length < 14 &&
       (player.settlements.length > 0 || player.cities.length > 0 || player.roads.length > 0);
     if (canBuildRoads) {
-      // High priority if close to longest road
+      // High priority: settlement plan needs 1-2 roads AND we can afford settlement
+      // This means road building → settle in the SAME turn (huge tempo)
+      if (context?.settlementPlan && context.settlementPlan.roadPath.length >= 1 &&
+          context.settlementPlan.roadPath.length <= 2) {
+        const canAffordSettlement = player.resources.brick >= 1 && player.resources.lumber >= 1 &&
+          player.resources.grain >= 1 && player.resources.wool >= 1;
+        if (canAffordSettlement) {
+          return { card: "roadBuilding" }; // road building saves brick+lumber for settlement
+        }
+      }
+
+      // Longest road finish: 1-2 roads away
       if (context && context.distanceToLongestRoad <= 2) {
         return { card: "roadBuilding" };
       }
-      // Play if settlement plan needs roads (saves brick+lumber for the settlement itself)
+
+      // Settlement plan needs roads (even if we can't settle yet, save brick+lumber)
       if (context?.settlementPlan && context.settlementPlan.roadPath.length >= 1) {
-        return { card: "roadBuilding" };
+        // Only play if the destination is actually good
+        if (context.settlementPlan.vertexScore > 5) {
+          return { card: "roadBuilding" };
+        }
       }
+
       // Without context, play if expansion strategy
       if (!context) {
         return { card: "roadBuilding" };
       }
-      // Don't play road building if we have no plan that needs roads —
-      // it's wasteful when saving for cities or dev cards
+      // Don't play road building if we have no plan that needs roads
     }
   }
 

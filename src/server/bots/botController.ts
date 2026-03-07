@@ -6,7 +6,7 @@ import { pickBankTrade, pickPlayerTrade } from "./strategy/trading";
 import { pickRobberHex, pickStealTarget, pickDiscardResources } from "./strategy/robber";
 import { pickDevCardToPlay } from "./strategy/devCards";
 import { computeStrategicContext, type BotStrategicContext } from "./strategy/context";
-import { BUILDING_COSTS, ALL_RESOURCES } from "@/shared/constants";
+import { BUILDING_COSTS, ALL_RESOURCES, NUMBER_DOTS } from "@/shared/constants";
 import { calculateLongestRoad } from "@/server/engine/longestRoad";
 import {
   edgesAtVertex,
@@ -95,24 +95,68 @@ function makeSetupAction(state: GameState, botIndex: number, context?: BotStrate
 // Pre-roll dev card decision
 // ============================================================
 
+/**
+ * Pre-roll decision: play a knight (or other dev card) before rolling dice.
+ *
+ * Theory: "Play knights BEFORE rolling — you can move the robber off your hex
+ * before seeing what produces. This is almost always better than playing after."
+ *
+ * Key heuristics:
+ * - Robber on our hex → always play knight (unblock production before rolling)
+ * - 1 knight from army → always play (guaranteed +2 VP)
+ * - Robber on a high-EV hex of ours → strongly prefer pre-roll knight
+ * - General army pursuit → play with scaling probability
+ */
 function makeRollOrPlayDevCard(state: GameState, botIndex: number, context: BotStrategicContext): GameAction {
   const player = state.players[botIndex];
   if (!player.hasPlayedDevCardThisTurn && player.developmentCards.includes("knight")) {
     let playProb = 0.3 * context.weights.knightEagerness;
-    if (context.distanceToLargestArmy <= 1) playProb = Math.min(1, 0.8 * context.weights.knightEagerness);
-    else if (context.distanceToLargestArmy <= 2) playProb = Math.min(1, 0.6 * context.weights.knightEagerness);
-
-    // Extra incentive: if the robber is on one of OUR hexes, play knight to move it away
-    const robberOnOurHex = isRobberOnOurHex(state, botIndex);
-    if (robberOnOurHex) playProb = Math.max(playProb, 0.85);
 
     // Win check: if playing knight gives us largest army and wins the game
     const vpNeeded = context.vpToWin - context.ownVP;
     if (vpNeeded <= 2 && context.distanceToLargestArmy === 1) {
-      playProb = 1.0; // guaranteed win path
+      return { type: "play-knight", playerIndex: botIndex }; // guaranteed win — always play
     }
 
-    if (Math.random() < playProb) {
+    // Robber on our hex: ALWAYS play pre-roll to unblock production
+    // Theory: playing before roll means your hex produces THIS turn instead of being blocked
+    const robberOnOurHex = isRobberOnOurHex(state, botIndex);
+    if (robberOnOurHex) {
+      // Calculate how much production we're losing
+      const robberHex = state.board.hexes[state.board.robberHex];
+      const blockedDots = robberHex?.number ? (NUMBER_DOTS[robberHex.number] || 0) : 0;
+      if (blockedDots >= 3) {
+        return { type: "play-knight", playerIndex: botIndex }; // high-value hex blocked — play now
+      }
+      playProb = Math.max(playProb, 0.9); // even low-value hex, still strong incentive
+    }
+
+    // Army pursuit: scale probability by distance
+    if (context.distanceToLargestArmy <= 1) {
+      playProb = Math.min(1, 0.95 * context.weights.knightEagerness); // +2 VP is huge
+    } else if (context.distanceToLargestArmy <= 2) {
+      playProb = Math.min(1, 0.7 * context.weights.knightEagerness);
+    } else if (context.distanceToLargestArmy <= 3) {
+      playProb = Math.min(1, 0.5 * context.weights.knightEagerness);
+    }
+
+    // Army defense: if we hold army and someone is close, play to extend lead
+    if (context.distanceToLargestArmy === 0 && context.largestArmyThreatened) {
+      playProb = Math.max(playProb, 0.85);
+    }
+
+    // Endgame: always play knights (VP from army + robber control)
+    if (context.isEndgame) playProb = Math.max(playProb, 0.9);
+
+    // Pre-roll advantage: even without specific urgency, playing knight pre-roll
+    // is better because you control the robber before production happens
+    if (context.playerThreats.length > 0) {
+      const leader = context.playerThreats[0];
+      // If leader has a high-production hex, we can block it before they collect
+      if (leader.totalProduction > 2) playProb += 0.1;
+    }
+
+    if (Math.random() < Math.min(1, playProb)) {
       return { type: "play-knight", playerIndex: botIndex };
     }
   }
@@ -236,7 +280,20 @@ function makePlanDrivenAction(state: GameState, botIndex: number, context: BotSt
   const tradeAction = tryTrading(state, botIndex, context);
   if (tradeAction) return tradeAction;
 
-  // 4. Nothing useful to do — END TURN and save resources
+  // 4. Re-evaluate: after trading failed, check if any lower-priority action makes sense.
+  // Theory: "If you can't execute your plan, don't just hoard — find SOMETHING productive."
+  // This catches cases where bank trading unlocked resources on a previous call,
+  // or where a secondary action (like a dev card) is better than ending turn empty-handed.
+  if (actions.length > 0) {
+    // Check if there's a dev card we should buy (even if it wasn't top priority)
+    const devCardAction = actions.find(a => a.name === "devCard" && a.score > 40);
+    if (devCardAction) {
+      const result = devCardAction.execute();
+      if (result) return result;
+    }
+  }
+
+  // 5. Nothing useful to do — END TURN and save resources
   return { type: "end-turn", playerIndex: botIndex };
 }
 
@@ -886,6 +943,17 @@ function makeSheepNukePickAction(state: GameState, botIndex: number, context: Bo
  * 2. Buying a dev card when we have hidden VP cards that push us over
  * 3. Playing a knight that gives us largest army for the win
  */
+/**
+ * Check if the bot can win the game THIS TURN — including multi-action sequences.
+ * Theory: "Finish with a bang" — chain actions on the winning turn so opponents
+ * can't react (e.g., road building → settle → city all in one turn).
+ *
+ * Priority order:
+ * 1. Single-action wins (city, settlement, knight for army)
+ * 2. Two-action wins (settlement + city, road + longest road)
+ * 3. Dev card combos (road building → settle, year of plenty → build)
+ * 4. Road for longest road finisher
+ */
 function checkWinningMove(state: GameState, botIndex: number, context: BotStrategicContext): GameAction | null {
   const player = state.players[botIndex];
   const vpNeeded = context.vpToWin - context.ownVP;
@@ -912,17 +980,12 @@ function checkWinningMove(state: GameState, botIndex: number, context: BotStrate
   // --- Can we win by playing a knight for largest army? (2 VP) ---
   if (vpNeeded <= 2 && !player.hasPlayedDevCardThisTurn && player.developmentCards.includes("knight")) {
     if (context.distanceToLargestArmy === 1) {
-      // Playing this knight gives us largest army = +2 VP
       return { type: "play-knight", playerIndex: botIndex };
     }
   }
 
-  // Dev card VP gamble is handled by evaluateActions with proper scoring.
-  // Don't override here — checkWinningMove should only return GUARANTEED wins.
-
   // --- Can we win with settlement + city combo? (2 VP) ---
   if (vpNeeded === 2 && canAfford(player, BUILDING_COSTS.settlement) && canAfford(player, BUILDING_COSTS.city)) {
-    // Check if we have enough resources for BOTH (not double-counted)
     const combinedCost: Partial<Record<Resource, number>> = {};
     for (const [r, a] of Object.entries(BUILDING_COSTS.settlement)) {
       combinedCost[r as Resource] = (combinedCost[r as Resource] || 0) + (a || 0);
@@ -931,7 +994,6 @@ function checkWinningMove(state: GameState, botIndex: number, context: BotStrate
       combinedCost[r as Resource] = (combinedCost[r as Resource] || 0) + (a || 0);
     }
     if (canAfford(player, combinedCost)) {
-      // Build settlement first (city needs an existing settlement)
       const plan = context.settlementPlan;
       if (plan && plan.roadPath.length === 0) {
         return { type: "build-settlement", playerIndex: botIndex, vertex: plan.targetVertex };
@@ -943,11 +1005,61 @@ function checkWinningMove(state: GameState, botIndex: number, context: BotStrate
     }
   }
 
+  // --- Road building dev card → settle combo (3 VP potential) ---
+  // Theory: "Finish with a bang" — play road building to reach a settlement spot
+  // in the same turn, then settle for the win.
+  if (vpNeeded <= 1 && !player.hasPlayedDevCardThisTurn && player.developmentCards.includes("roadBuilding")) {
+    const plan = context.settlementPlan;
+    // Road building gives 2 free roads. If plan needs 1-2 roads and we can afford settlement:
+    if (plan && plan.roadPath.length >= 1 && plan.roadPath.length <= 2 &&
+        canAfford(player, BUILDING_COSTS.settlement)) {
+      // Play road building first — it will lead to the settlement spot
+      return { type: "play-road-building", playerIndex: botIndex };
+    }
+  }
+
+  // --- Road building for longest road finisher (2 VP) ---
+  if (vpNeeded <= 2 && !player.hasPlayedDevCardThisTurn && player.developmentCards.includes("roadBuilding")) {
+    if (context.distanceToLongestRoad <= 2) {
+      return { type: "play-road-building", playerIndex: botIndex };
+    }
+  }
+
+  // --- Year of Plenty to complete a winning build ---
+  if (!player.hasPlayedDevCardThisTurn && player.developmentCards.includes("yearOfPlenty")) {
+    // Check if year of plenty + existing resources = enough to build a winning city
+    if (vpNeeded === 1 && context.cityPlan && context.cityPlan.totalMissing <= 2) {
+      const missing = context.cityPlan.missingResources;
+      const missingRes = Object.entries(missing).filter(([, amt]) => (amt || 0) > 0).map(([r]) => r as Resource);
+      if (missingRes.length > 0) {
+        return {
+          type: "play-year-of-plenty",
+          playerIndex: botIndex,
+          resource1: missingRes[0],
+          resource2: missingRes.length > 1 ? missingRes[1] : missingRes[0],
+        };
+      }
+    }
+    // Check if year of plenty completes a winning settlement
+    if (vpNeeded === 1 && context.settlementPlan && context.settlementPlan.roadPath.length === 0 &&
+        context.settlementPlan.totalMissing <= 2) {
+      const missing = context.settlementPlan.missingResources;
+      const missingRes = Object.entries(missing).filter(([, amt]) => (amt || 0) > 0).map(([r]) => r as Resource);
+      if (missingRes.length > 0) {
+        return {
+          type: "play-year-of-plenty",
+          playerIndex: botIndex,
+          resource1: missingRes[0],
+          resource2: missingRes.length > 1 ? missingRes[1] : missingRes[0],
+        };
+      }
+    }
+  }
+
   // --- Can we win by building road for longest road? (2 VP) ---
   if (vpNeeded <= 2 && context.distanceToLongestRoad === 1 && canAfford(player, BUILDING_COSTS.road)) {
     const edge = pickBuildRoad(state, botIndex, context);
     if (edge) {
-      // Simulate: would this road give us longest road?
       const simPlayers = state.players.map((p, i) =>
         i === botIndex ? { ...p, roads: [...p.roads, edge] } : p
       );
@@ -959,6 +1071,36 @@ function checkWinningMove(state: GameState, botIndex: number, context: BotStrate
 
       if (newLength >= 5 && (currentHolder === null || newLength > currentBest || currentHolder === botIndex)) {
         return { type: "build-road", playerIndex: botIndex, edge };
+      }
+    }
+  }
+
+  // --- Monopoly for winning resources ---
+  // If monopoly could grab the 1-2 resources needed to build a winning piece
+  if (!player.hasPlayedDevCardThisTurn && player.developmentCards.includes("monopoly")) {
+    if (vpNeeded === 1) {
+      // Check if monopoly on a specific resource completes a city or settlement
+      for (const res of ALL_RESOURCES) {
+        let totalOppCards = 0;
+        for (let i = 0; i < state.players.length; i++) {
+          if (i === botIndex) continue;
+          totalOppCards += state.players[i].resources[res];
+        }
+        if (totalOppCards === 0) continue;
+
+        // Simulate having all of that resource
+        const simResources = { ...player.resources };
+        simResources[res] += totalOppCards;
+        const simPlayer = { ...player, resources: simResources };
+
+        // Would this let us build a city?
+        if (context.cityPlan && canAfford(simPlayer, BUILDING_COSTS.city)) {
+          return { type: "play-monopoly", playerIndex: botIndex, resource: res };
+        }
+        // Would this let us build a settlement?
+        if (context.settlementPlan?.roadPath.length === 0 && canAfford(simPlayer, BUILDING_COSTS.settlement)) {
+          return { type: "play-monopoly", playerIndex: botIndex, resource: res };
+        }
       }
     }
   }

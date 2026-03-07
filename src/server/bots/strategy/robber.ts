@@ -28,8 +28,12 @@ export function pickRobberHex(state: GameState, playerIndex: number, context?: B
     }
   }
 
-  // In endgame, find the leader to target specifically
-  const leader = context?.isEndgame && context.playerThreats.length > 0
+  // In endgame OR when anyone is close to winning, target the leader
+  // Theory: "If opponent is close to winning, place robber on their best hex preemptively"
+  const anyoneCloseToWinning = context ? context.playerThreats.some(
+    (t) => t.estimatedVP >= (context.vpToWin - 2)
+  ) : false;
+  const leader = context && (context.isEndgame || anyoneCloseToWinning) && context.playerThreats.length > 0
     ? context.playerThreats[0] : null;
 
   // Pre-compute friendly robber exclusion: skip hexes where all buildings belong to players with ≤2 VP
@@ -307,19 +311,26 @@ export function pickDiscardResources(
       resourceValue.wool = Math.max(resourceValue.wool, 3);
     }
 
-    // Plan protection: strongly protect resources needed for settlement/city plan
+    // Plan protection: protect resources needed for builds, scaled by proximity
+    // Theory: "Keep resources closest to completing your current build goal.
+    // A resource that's the LAST one you need is more valuable than one that's 3 away."
     const hoarding = context.weights.resourceHoarding;
     if (context.settlementPlan) {
+      const planMissing = context.settlementPlan.totalMissing;
+      // Closer to completion = protect more strongly
+      const proximityBonus = planMissing <= 2 ? 4 : planMissing <= 4 ? 3 : 2;
       for (const [res, amount] of Object.entries(context.settlementPlan.missingResources)) {
         if ((amount || 0) > 0) {
-          resourceValue[res as Resource] += 3 * hoarding;
+          resourceValue[res as Resource] += proximityBonus * hoarding;
         }
       }
     }
     if (context.cityPlan) {
+      const cityMissing = context.cityPlan.totalMissing;
+      const proximityBonus = cityMissing <= 2 ? 3.5 : cityMissing <= 4 ? 2.5 : 1.5;
       for (const [res, amount] of Object.entries(context.cityPlan.missingResources)) {
         if ((amount || 0) > 0) {
-          resourceValue[res as Resource] += 2 * hoarding;
+          resourceValue[res as Resource] += proximityBonus * hoarding;
         }
       }
     }

@@ -235,7 +235,16 @@ export function pickSetupVertex(
       }
 
       // Wool coverage (needed for settlements + dev cards)
-      if (!firstProduction.resourceSet.has("wool") && production.resourceSet.has("wool")) score += 12;
+      if (!firstProduction.resourceSet.has("wool") && production.resourceSet.has("wool")) score += 15;
+
+      // === CRITICAL PAIR PENALTY ===
+      // Theory: ending setup with NEITHER brick+lumber NOR ore+grain is catastrophic.
+      // You can't build roads/settlements without brick+lumber, can't upgrade without ore+grain.
+      const combinedResources = new Set([...firstProduction.resourceSet, ...production.resourceSet]);
+      const hasBrickOrLumber = combinedResources.has("brick") || combinedResources.has("lumber");
+      const hasOreOrGrain = combinedResources.has("ore") || combinedResources.has("grain");
+      if (!hasBrickOrLumber) score -= 40; // can't build ANY roads or settlements
+      if (!hasOreOrGrain) score -= 30; // can't build cities or dev cards
 
       // Port synergy: if this vertex has a 2:1 port matching a resource we heavily produce
       const port = getPortAtVertex(state, vk);
@@ -312,7 +321,13 @@ export function pickSetupVertex(
 
 /**
  * Pick the best edge for road placement during setup.
- * Points toward high-value vertices, ports, and expansion paths.
+ * Theory: "Your setup road should point toward your NEXT planned settlement spot."
+ *
+ * For second settlement: point toward resource complementarity and expansion.
+ * For first settlement: point toward where you'll want your third settlement.
+ *
+ * Also considers: ports, opponent proximity (stronger penalty), and
+ * resource complementarity (road toward resources you're missing).
  */
 export function pickSetupRoad(
   state: GameState,
@@ -320,9 +335,19 @@ export function pickSetupRoad(
   settlementVertex: VertexKey,
   context?: BotStrategicContext,
 ): EdgeKey | null {
+  const player = state.players[playerIndex];
   const edges = edgesAtVertex(settlementVertex);
   let bestEdge: EdgeKey | null = null;
   let bestScore = -Infinity;
+
+  // What resources does our current settlement produce?
+  const settlementProd = computeVertexProduction(state, settlementVertex);
+  // What resources do ALL our settlements produce?
+  const allProduction = new Set<Resource>();
+  for (const s of player.settlements) {
+    const prod = computeVertexProduction(state, s);
+    for (const res of prod.resourceSet) allProduction.add(res);
+  }
 
   for (const ek of edges) {
     if (state.board.edges[ek] !== null) continue;
@@ -336,18 +361,26 @@ export function pickSetupRoad(
     // Score the vertex at the other end of the road
     const otherProd = computeVertexProduction(state, otherEnd);
     if (state.board.vertices[otherEnd] === null) {
-      // Good settlement spot at the other end
       score += otherProd.totalEV * 25;
 
-      // Distance rule check: can we actually settle here?
+      // Distance rule check
       const adjVerts = adjacentVertices(otherEnd);
       const tooClose = adjVerts.some(
         (av) => state.board.vertices[av] !== null && state.board.vertices[av] !== undefined
       );
       if (tooClose) {
-        score -= 15; // can't settle here, but might pass through
+        score -= 15;
       } else {
-        score += 10; // valid settlement spot bonus
+        score += 10;
+
+        // === RESOURCE COMPLEMENTARITY ===
+        // Bonus for pointing toward resources we DON'T already produce
+        for (const res of otherProd.resourceSet) {
+          if (!allProduction.has(res)) {
+            score += 12; // fills a production gap
+            if (res === "ore" || res === "grain") score += 5; // city resources extra valuable
+          }
+        }
       }
 
       if (context) {
@@ -365,12 +398,17 @@ export function pickSetupRoad(
       const prod = computeVertexProduction(state, rv);
       score += prod.totalEV * 40;
 
-      // Check if this 2-hop vertex is a valid settlement spot
       const adjVerts = adjacentVertices(rv);
       const tooClose = adjVerts.some(
         (av) => av !== otherEnd && state.board.vertices[av] !== null && state.board.vertices[av] !== undefined
       );
-      if (!tooClose) score += 8; // valid expansion target
+      if (!tooClose) {
+        score += 8;
+        // Resource complementarity at 2-hop
+        for (const res of prod.resourceSet) {
+          if (!allProduction.has(res)) score += 6;
+        }
+      }
 
       if (context) {
         const pb = evaluatePortStrategy(state, rv, prod);
@@ -378,18 +416,19 @@ export function pickSetupRoad(
       }
     }
 
-    // Opponent proximity penalty
+    // === OPPONENT PROXIMITY PENALTY (STRENGTHENED) ===
+    // Theory: building next to opponents is dangerous — they'll block your expansion
     if (context) {
       for (const rv of reachable) {
         const building = state.board.vertices[rv];
         if (building && building.playerIndex !== playerIndex) {
-          score -= 10;
+          score -= 25; // opponent settlement nearby = expansion blocked (was -10)
         }
         const adjEdges = edgesAtVertex(rv);
         for (const ae of adjEdges) {
           const road = state.board.edges[ae];
           if (road && road.playerIndex !== playerIndex) {
-            score -= 3;
+            score -= 8; // opponent road nearby = contested expansion (was -3)
           }
         }
       }

@@ -81,44 +81,55 @@ function broadcastLobbyState(io: TypedServer, room: Room) {
   });
 }
 
+/** Wraps a socket event handler in try-catch so one bad event can't crash the server */
+function safe<T extends unknown[]>(handler: (...args: T) => void): (...args: T) => void {
+  return (...args: T) => {
+    try {
+      handler(...args);
+    } catch (err) {
+      console.error(`[ERROR] Socket handler threw:`, err);
+    }
+  };
+}
+
 export function handleConnection(io: TypedServer, socket: TypedSocket) {
-  socket.on("room:join", ({ roomCode, playerName, reconnectToken }) => {
+  socket.on("room:join", safe(({ roomCode, playerName, reconnectToken }) => {
     handleJoin(io, socket, roomCode, playerName, reconnectToken);
-  });
+  }));
 
-  socket.on("room:leave", () => {
+  socket.on("room:leave", safe(() => {
     handleLeave(io, socket);
-  });
+  }));
 
-  socket.on("room:add-bot", ({ difficulty, personality }) => {
+  socket.on("room:add-bot", safe(({ difficulty, personality }) => {
     handleAddBot(io, socket, difficulty, personality);
-  });
+  }));
 
-  socket.on("room:remove-bot", ({ playerIndex }) => {
+  socket.on("room:remove-bot", safe(({ playerIndex }) => {
     handleRemoveBot(io, socket, playerIndex);
-  });
+  }));
 
-  socket.on("room:start-game", () => {
+  socket.on("room:start-game", safe(() => {
     handleStartGame(io, socket);
-  });
+  }));
 
-  socket.on("room:update-config", ({ config }) => {
+  socket.on("room:update-config", safe(({ config }) => {
     handleUpdateConfig(io, socket, config);
-  });
+  }));
 
-  socket.on("room:update-player", ({ color, buildingStyle, name }) => {
+  socket.on("room:update-player", safe(({ color, buildingStyle, name }) => {
     handleUpdatePlayer(io, socket, color, buildingStyle, name);
-  });
+  }));
 
-  socket.on("room:update-bot", ({ playerIndex, name, color, personality }) => {
+  socket.on("room:update-bot", safe(({ playerIndex, name, color, personality }) => {
     handleUpdateBot(io, socket, playerIndex, name, color, personality);
-  });
+  }));
 
-  socket.on("room:leave-game", () => {
+  socket.on("room:leave-game", safe(() => {
     handleLeaveGame(io, socket);
-  });
+  }));
 
-  socket.on("room:request-state", () => {
+  socket.on("room:request-state", safe(() => {
     const room = getRoomForSocket(socket.id);
     if (!room) return;
     // Send current lobby state (or game state if in-game) to this socket
@@ -135,27 +146,27 @@ export function handleConnection(io: TypedServer, socket: TypedSocket) {
         socket.emit("game:state", { state: clientState });
       }
     }
-  });
+  }));
 
-  socket.on("game:action", ({ action }) => {
+  socket.on("game:action", safe(({ action }) => {
     handleGameAction(io, socket, action);
-  });
+  }));
 
-  socket.on("game:counter-offer", ({ offering, requesting }) => {
+  socket.on("game:counter-offer", safe(({ offering, requesting }) => {
     const room = getRoomForSocket(socket.id);
     if (!room || !room.gameState) return;
     const slot = getPlayerSlot(room, socket.id);
     if (!slot) return;
     handleCounterOffer(io, room, slot.index, offering, requesting);
-  });
+  }));
 
-  socket.on("chat:message", ({ text }) => {
+  socket.on("chat:message", safe(({ text }) => {
     handleChat(io, socket, text);
-  });
+  }));
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", safe(() => {
     handleDisconnect(io, socket);
-  });
+  }));
 }
 
 function handleJoin(
@@ -211,7 +222,9 @@ function handleJoin(
   // Reconnection attempt
   if (reconnectToken) {
     const slot = room.players.find((p) => p.reconnectToken === reconnectToken);
-    if (slot && !slot.isBot) {
+    if (slot) {
+      // Reclaim slot — even if it was converted to a bot after grace period
+      slot.isBot = false;
       slot.socketId = socket.id;
       slot.disconnectedAt = null;
       socketToRoom.set(socket.id, roomCode);
@@ -317,30 +330,38 @@ function handleDisconnect(io: TypedServer, socket: TypedSocket) {
   const slot = room.players.find((p) => p.socketId === socket.id);
   if (!slot) return;
 
+  const wasHost = room.hostSocketId === socket.id;
+
   // Keep the slot, start grace period (works for both lobby and in-game)
   slot.socketId = null;
   slot.disconnectedAt = Date.now();
   socketToRoom.delete(socket.id);
 
-  // If no connected humans remain, end the session immediately
+  // Reassign host immediately if the disconnected player was host
+  if (wasHost) {
+    const newHost = room.players.find((p) => !p.isBot && p.socketId);
+    if (newHost) room.hostSocketId = newHost.socketId!;
+  }
+
+  // Only end the session if no humans are connected AND none are in grace period
   if (checkAllHumansGone(io, room)) return;
 
-  const gracePeriod = room.gameState ? 5 * 60 * 1000 : 30 * 1000; // 5 min in-game, 30s in lobby
+  // Broadcast updated lobby state so remaining players see the disconnection
+  broadcastLobbyState(io, room);
+
+  const gracePeriod = room.gameState ? 5 * 60 * 1000 : 60 * 1000; // 5 min in-game, 60s in lobby
 
   setTimeout(() => {
+    // Room may have been deleted already
+    if (!rooms.has(room.code)) return;
+
     if (slot.disconnectedAt !== null) {
       if (room.gameState) {
-        // In-game: replace with bot
+        // In-game: replace with bot, but keep reconnectToken so player can reclaim
         slot.isBot = true;
-        slot.reconnectToken = null;
+        // NOTE: reconnectToken is preserved so the player can still rejoin
 
-        // Reassign host if needed
-        if (slot.socketId && room.hostSocketId === slot.socketId) {
-          const newHost = room.players.find((p) => !p.isBot && p.socketId);
-          if (newHost) room.hostSocketId = newHost.socketId!;
-        }
-
-        // Check if all humans are gone
+        // Check if all humans are gone (no connected AND no grace-period players left)
         if (checkAllHumansGone(io, room)) return;
 
         broadcastLobbyState(io, room);
@@ -356,6 +377,8 @@ function handleDisconnect(io: TypedServer, socket: TypedSocket) {
 function removePlayerBySlot(io: TypedServer, room: Room, slot: PlayerSlot) {
   const idx = room.players.indexOf(slot);
   if (idx === -1) return;
+
+  const wasHost = room.hostSocketId === slot.socketId;
 
   room.players.splice(idx, 1);
   // Re-index
@@ -374,7 +397,7 @@ function removePlayerBySlot(io: TypedServer, room: Room, slot: PlayerSlot) {
   }
 
   // If host left, assign new host
-  if (slot.socketId && room.hostSocketId === slot.socketId) {
+  if (wasHost) {
     const newHost = room.players.find((p) => !p.isBot && p.socketId);
     if (newHost) room.hostSocketId = newHost.socketId!;
   }
@@ -517,9 +540,13 @@ function handleLeaveGame(io: TypedServer, socket: TypedSocket) {
 }
 
 function checkAllHumansGone(io: TypedServer, room: Room): boolean {
-  // A human is "present" if they're not a bot AND still connected (have a socketId)
-  const anyConnectedHuman = room.players.some((p) => !p.isBot && p.socketId !== null);
-  if (!anyConnectedHuman) {
+  // A human is "present" if they're not a bot AND either:
+  // - still connected (have a socketId), OR
+  // - disconnected but still within their grace period (disconnectedAt is set)
+  const anyHumanPresent = room.players.some(
+    (p) => !p.isBot && (p.socketId !== null || p.disconnectedAt !== null)
+  );
+  if (!anyHumanPresent) {
     // End session — clean up timers and delete room
     room.botTimers.forEach(clearTimeout);
     if (room.turnTimer) clearTimeout(room.turnTimer);

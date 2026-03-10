@@ -19,6 +19,8 @@ function getSocket(): AnySocket {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
+      // Use WebSocket directly — avoids polling-related phantom disconnects
+      transports: ["websocket"],
     });
   }
   return globalSocket;

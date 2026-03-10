@@ -52,6 +52,24 @@ export default function JoinPage() {
     if (roomCode) router.push("/game/online");
   }, [roomCode, router]);
 
+  // Auto-reconnect if we have a saved session for this room code
+  useEffect(() => {
+    if (!socket || !connected || roomCode) return;
+    try {
+      const raw = localStorage.getItem("catan-session");
+      if (!raw) return;
+      const session = JSON.parse(raw);
+      if (session.roomCode === code && session.reconnectToken) {
+        setJoining(true);
+        socket.emit("room:join", {
+          roomCode: code,
+          playerName: "",
+          reconnectToken: session.reconnectToken,
+        });
+      }
+    } catch {}
+  }, [socket, connected, code, roomCode]);
+
   function handleJoin() {
     if (!socket || !connected || !name.trim()) return;
 

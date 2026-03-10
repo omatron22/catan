@@ -99,9 +99,11 @@ export default function OnlineGamePage() {
     const onState = ({ state }: { state: ClientGameState }) => store().setGameState(state);
     const onEvents = ({ events }: { events: import("@/shared/types/actions").GameEvent[] }) => store().setEvents(events);
     const onError = ({ message }: { message: string }) => {
-      if (message === "Room not found" || message === "Game already in progress") {
+      if (message === "Room not found") {
         store().reset(); router.push("/"); return;
       }
+      // Don't reset on "Game already in progress" — the player may still
+      // be able to reconnect with their token on a subsequent attempt
       setLocalError(message); setTimeout(() => setLocalError(null), 3000);
     };
     const onLobby = (data: { players: LobbyPlayer[]; config: LobbyConfig; hostIndex: number }) => store().setLobbyState(data);

@@ -8,6 +8,14 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",")
   : ["http://localhost:3000"];
 
+// Prevent server crashes from taking down all rooms
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception (server kept alive):", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL] Unhandled rejection (server kept alive):", reason);
+});
+
 const httpServer = createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -23,8 +31,14 @@ const io: TypedServer = new Server(httpServer, {
     origin: CORS_ORIGINS,
     methods: ["GET", "POST"],
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  // Tighter ping settings to detect dead connections faster and recover sooner
+  pingTimeout: 20000,
+  pingInterval: 10000,
+  // Skip HTTP long-polling — go straight to WebSocket.
+  // Polling is the #1 cause of phantom disconnects behind proxies/CDNs.
+  transports: ["websocket"],
+  // Allow clients that still attempt polling to upgrade
+  allowUpgrades: false,
 });
 
 io.on("connection", (socket: TypedSocket) => {

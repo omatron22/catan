@@ -23,6 +23,16 @@ export function clearTurnTimer(room: Room) {
 }
 
 function handleTimeout(io: TypedServer, room: Room) {
+  try {
+    _handleTimeout(io, room);
+  } catch (err) {
+    console.error(`[ERROR] Turn timer handler threw in room ${room.code}:`, err);
+    // Re-broadcast so clients stay in sync
+    broadcastState(io, room);
+  }
+}
+
+function _handleTimeout(io: TypedServer, room: Room) {
   if (!room.gameState || room.gameState.phase === "finished") return;
 
   const state = room.gameState;

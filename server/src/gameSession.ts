@@ -56,6 +56,19 @@ export function handleGameAction(
   socket: TypedSocket,
   action: GameAction
 ) {
+  try {
+    _handleGameAction(io, socket, action);
+  } catch (err) {
+    console.error(`[ERROR] Game action failed in room:`, err);
+    socket.emit("game:error", { message: "Server error processing action" });
+  }
+}
+
+function _handleGameAction(
+  io: TypedServer,
+  socket: TypedSocket,
+  action: GameAction
+) {
   const room = getRoomForSocket(socket.id);
   if (!room || !room.gameState) return;
 
@@ -228,61 +241,66 @@ export function scheduleBotActions(io: TypedServer, room: Room) {
         anyBotNeedsToRespond = true;
         const tradeId = trade.id;
         const timer = setTimeout(() => {
-          if (!room.gameState) return;
-          const currentTrade = room.gameState.pendingTrades.find((t) => t.id === tradeId);
-          if (!currentTrade) return;
+          try {
+            if (!room.gameState) return;
+            const currentTrade = room.gameState.pendingTrades.find((t) => t.id === tradeId);
+            if (!currentTrade) return;
 
-          const acceptors: number[] = [];
-          for (const bot of respondingBots) {
-            const decision = decideBotTradeResponse(room.gameState, bot.index);
-            if (decision === "accept") {
-              acceptors.push(bot.index);
-              // Also apply to engine state
-              const acceptResult = applyAction(room.gameState, {
-                type: "accept-trade",
-                playerIndex: bot.index,
-                tradeId: tradeId,
-              });
-              if (acceptResult.valid && acceptResult.newState) {
-                room.gameState = acceptResult.newState;
+            const acceptors: number[] = [];
+            for (const bot of respondingBots) {
+              const decision = decideBotTradeResponse(room.gameState, bot.index);
+              if (decision === "accept") {
+                acceptors.push(bot.index);
+                // Also apply to engine state
+                const acceptResult = applyAction(room.gameState, {
+                  type: "accept-trade",
+                  playerIndex: bot.index,
+                  tradeId: tradeId,
+                });
+                if (acceptResult.valid && acceptResult.newState) {
+                  room.gameState = acceptResult.newState;
+                }
+                if (room.tradeResponses?.[tradeId]) {
+                  room.tradeResponses[tradeId][bot.index] = { playerIndex: bot.index, status: "accepted", counterOffer: null };
+                }
+              } else {
+                const counter = generateBotCounterOffer(room.gameState, bot.index);
+                if (room.tradeResponses?.[tradeId]) {
+                  room.tradeResponses[tradeId][bot.index] = { playerIndex: bot.index, status: "rejected", counterOffer: counter };
+                }
               }
-              if (room.tradeResponses?.[tradeId]) {
-                room.tradeResponses[tradeId][bot.index] = { playerIndex: bot.index, status: "accepted", counterOffer: null };
+            }
+
+            const hasHumanTargets = room.players.some(
+              (p) => !p.isBot && p.index !== currentTrade.fromPlayer &&
+                (currentTrade.toPlayer === null || currentTrade.toPlayer === p.index)
+            );
+
+            const hasCounters = room.tradeResponses?.[tradeId]
+              ? Object.values(room.tradeResponses[tradeId]).some((r) => r.counterOffer != null)
+              : false;
+
+            if (acceptors.length === 0 && !hasCounters && !hasHumanTargets) {
+              const result = applyAction(room.gameState, {
+                type: "cancel-trade",
+                playerIndex: currentTrade.fromPlayer,
+                tradeId: currentTrade.id,
+              });
+              if (result.valid && result.newState) {
+                room.gameState = result.newState;
+                if (room.tradeResponses) {
+                  delete room.tradeResponses[tradeId];
+                  if (Object.keys(room.tradeResponses).length === 0) room.tradeResponses = null;
+                }
+                broadcastState(io, room);
+                scheduleBotActions(io, room);
+                return;
               }
             } else {
-              const counter = generateBotCounterOffer(room.gameState, bot.index);
-              if (room.tradeResponses?.[tradeId]) {
-                room.tradeResponses[tradeId][bot.index] = { playerIndex: bot.index, status: "rejected", counterOffer: counter };
-              }
-            }
-          }
-
-          const hasHumanTargets = room.players.some(
-            (p) => !p.isBot && p.index !== currentTrade.fromPlayer &&
-              (currentTrade.toPlayer === null || currentTrade.toPlayer === p.index)
-          );
-
-          const hasCounters = room.tradeResponses?.[tradeId]
-            ? Object.values(room.tradeResponses[tradeId]).some((r) => r.counterOffer != null)
-            : false;
-
-          if (acceptors.length === 0 && !hasCounters && !hasHumanTargets) {
-            const result = applyAction(room.gameState, {
-              type: "cancel-trade",
-              playerIndex: currentTrade.fromPlayer,
-              tradeId: currentTrade.id,
-            });
-            if (result.valid && result.newState) {
-              room.gameState = result.newState;
-              if (room.tradeResponses) {
-                delete room.tradeResponses[tradeId];
-                if (Object.keys(room.tradeResponses).length === 0) room.tradeResponses = null;
-              }
               broadcastState(io, room);
-              scheduleBotActions(io, room);
-              return;
             }
-          } else {
+          } catch (err) {
+            console.error(`[ERROR] Bot trade response failed in room ${room.code}:`, err);
             broadcastState(io, room);
           }
         }, BOT_MOVE_DELAY_MS);
@@ -353,22 +371,29 @@ export function scheduleBotActions(io: TypedServer, room: Room) {
 }
 
 function executeBotAction(io: TypedServer, room: Room, botIndex: number) {
-  if (!room.gameState || room.gameState.phase === "finished") return;
+  try {
+    if (!room.gameState || room.gameState.phase === "finished") return;
 
-  const action = decideBotAction(room.gameState, botIndex);
-  if (!action) return;
+    const action = decideBotAction(room.gameState, botIndex);
+    if (!action) return;
 
-  const result = applyAction(room.gameState, action);
-  if (!result.valid || !result.newState) return;
+    const result = applyAction(room.gameState, action);
+    if (!result.valid || !result.newState) return;
 
-  room.gameState = result.newState;
+    room.gameState = result.newState;
 
-  if (result.events && result.events.length > 0) {
-    io.to(room.code).emit("game:events", { events: result.events });
+    if (result.events && result.events.length > 0) {
+      io.to(room.code).emit("game:events", { events: result.events });
+    }
+
+    broadcastState(io, room);
+    scheduleBotActions(io, room);
+  } catch (err) {
+    console.error(`[ERROR] Bot action failed for bot ${botIndex} in room ${room.code}:`, err);
+    // Re-broadcast current state so clients stay in sync, then retry bot logic
+    broadcastState(io, room);
+    setTimeout(() => scheduleBotActions(io, room), 2000);
   }
-
-  broadcastState(io, room);
-  scheduleBotActions(io, room);
 }
 
 const TRADE_TIMEOUT_MS = 30_000;
